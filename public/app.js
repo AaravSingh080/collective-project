@@ -13,10 +13,11 @@
   const state = {
     cfg: {
       storeName: 'Palladium, Mumbai', eventName: '', hashtag: '#TheCollectiveIndia',
-      shots: 1, countdownSeconds: 3, autoPrint: false, copies: 1,
+      shots: 1, countdownSeconds: 3, autoPrint: false, copies: 1, defaultFilter: 'original',
       mirrorPreview: true, mirrorPrint: false, idleResetSeconds: 45,
-      paper: { widthIn: 4, heightIn: 6, dpi: 300 }
+      paper: { name: 'A5', widthIn: 5.83, heightIn: 8.27, dpi: 300 }
     },
+    filter: 'original',
     server: null,          // /api/status payload or null => demo
     stream: null,
     cameraLabel: '',
@@ -31,6 +32,34 @@
   const railText = Array(24).fill('The Collective').join(' · ') + ' · ';
   document.querySelectorAll('.rail span').forEach(s => s.textContent = railText + railText);
 
+  // ---------- photo finishes (CSS filter strings applied when the print is composed) ----------
+  const FILTERS = [
+    { id: 'original', label: 'Colour',  css: 'none' },
+    { id: 'mono',     label: 'Mono',    css: 'grayscale(1) contrast(1.08)' },
+    { id: 'noir',     label: 'Noir',    css: 'grayscale(1) contrast(1.35) brightness(.94)' },
+    { id: 'warm',     label: 'Warm',    css: 'sepia(.38) saturate(1.15) contrast(1.05)' },
+    { id: 'soft',     label: 'Soft',    css: 'brightness(1.06) contrast(.94) saturate(.85)' },
+    { id: 'vivid',    label: 'Vivid',   css: 'saturate(1.35) contrast(1.1)' }
+  ];
+  function filterCss(id) { return (FILTERS.find(f => f.id === id) || FILTERS[0]).css; }
+  function renderFilterChips() {
+    const box = $('filters'); box.innerHTML = '';
+    FILTERS.forEach(f => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'chip'; b.textContent = f.label; b.dataset.id = f.id;
+      b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', String(f.id === state.filter));
+      b.addEventListener('click', async () => {
+        if (state.filter === f.id) return;
+        state.filter = f.id;
+        box.querySelectorAll('.chip').forEach(c => c.setAttribute('aria-checked', String(c.dataset.id === f.id)));
+        video.style.filter = f.css === 'none' ? '' : f.css;
+        if (state.shots.length) await compose(printCanvas, state.shots);
+        armIdle('review');
+      });
+      box.appendChild(b);
+    });
+  }
+
   // ---------- stage control ----------
   function setStage(name) {
     booth.dataset.stage = name;
@@ -43,6 +72,9 @@
   }
   function goHome() {
     state.shots = [];
+    state.filter = state.cfg.defaultFilter || 'original';
+    video.style.filter = '';
+    renderFilterChips();
     state.copies = state.cfg.copies || 1;
     $('copiesN').textContent = state.copies;
     setStage('attract');
@@ -84,9 +116,12 @@
     booth.classList.toggle('mirror', !!c.mirrorPreview);
     state.copies = c.copies || 1;
     $('copiesN').textContent = state.copies;
+    const paperLabel = c.paper.name || `${c.paper.widthIn} × ${c.paper.heightIn} in`;
     $('attractHint').textContent = c.shots > 1
-      ? `${c.shots} shots on one 4 × 6 inch print, framed by The Collective.`
-      : 'A 4 × 6 inch print, framed by The Collective.';
+      ? `${c.shots} shots on one ${paperLabel} print, framed by The Collective.`
+      : `An ${paperLabel} print, framed by The Collective.`;
+    $('previewCaption').textContent = `Print preview · ${paperLabel} · ${c.paper.dpi} dpi`;
+    printCanvas.style.aspectRatio = `${c.paper.widthIn} / ${c.paper.heightIn}`;
   }
 
   // ---------- camera ----------
@@ -233,21 +268,17 @@
     ]); } catch {}
     const SERIF = '"Bodoni Moda", Didot, "Playfair Display", Georgia, serif';
     const SANS = 'Jost, Futura, "Helvetica Neue", Arial, sans-serif';
-    const INK = '#0b0a09', IVORY = '#f5f1e8', BRONZE = '#a8824c', BRONZE_SOFT = '#cdb282';
+    const INK = '#000000', PAPER = '#ffffff', BRONZE = '#a8824c', GREY = '#6b6b6b';
 
-    // paper
-    g.fillStyle = IVORY; g.fillRect(0, 0, W, H);
+    // paper: pure white
+    g.fillStyle = PAPER; g.fillRect(0, 0, W, H);
 
     // --- running wordmark border on all four sides (the "all around" branding) ---
     const edge = 22 * u;                           // bleed-safe inset
     const railH = 34 * u;
+    const inner = edge + railH;
     g.save();
     g.fillStyle = INK;
-    g.fillRect(0, 0, W, edge + railH);             // top band
-    g.fillRect(0, H - edge - railH, W, edge + railH); // bottom band
-    g.fillRect(0, 0, edge + railH, H);             // left band
-    g.fillRect(W - edge - railH, 0, edge + railH, H); // right band
-    g.fillStyle = BRONZE_SOFT;
     g.font = `500 ${13 * u}px ${SERIF}`;
     g.letterSpacing = `${4 * u}px`;
     g.textBaseline = 'middle';
@@ -255,22 +286,22 @@
     const ww = g.measureText(word).width;
     const drawRun = (len) => { for (let x = -ww * .3; x < len; x += ww) g.fillText(word, x, 0); };
     g.textAlign = 'left';
-    g.save(); g.translate(edge + railH, edge + railH / 2); drawRun(W - 2 * (edge + railH)); g.restore();
-    g.save(); g.translate(W - edge - railH, H - edge - railH / 2); g.rotate(Math.PI); drawRun(W - 2 * (edge + railH)); g.restore();
-    g.save(); g.translate(edge + railH / 2, H - edge - railH); g.rotate(-Math.PI / 2); drawRun(H - 2 * (edge + railH)); g.restore();
-    g.save(); g.translate(W - edge - railH / 2, edge + railH); g.rotate(Math.PI / 2); drawRun(H - 2 * (edge + railH)); g.restore();
+    g.save(); g.translate(inner, edge + railH / 2); drawRun(W - 2 * inner); g.restore();
+    g.save(); g.translate(W - inner, H - edge - railH / 2); g.rotate(Math.PI); drawRun(W - 2 * inner); g.restore();
+    g.save(); g.translate(edge + railH / 2, H - inner); g.rotate(-Math.PI / 2); drawRun(H - 2 * inner); g.restore();
+    g.save(); g.translate(W - edge - railH / 2, inner); g.rotate(Math.PI / 2); drawRun(H - 2 * inner); g.restore();
     // corner monograms on clean squares
-    const cs = edge + railH;
-    g.fillStyle = INK;
-    [[0, 0], [W - cs, 0], [0, H - cs], [W - cs, H - cs]].forEach(([x, y]) => g.fillRect(x, y, cs, cs));
-    g.fillStyle = BRONZE_SOFT;
-    g.font = `italic 400 ${18 * u}px ${SERIF}`; g.letterSpacing = '0px'; g.textAlign = 'center';
+    g.fillStyle = PAPER;
+    [[0, 0], [W - inner, 0], [0, H - inner], [W - inner, H - inner]].forEach(([x, y]) => g.fillRect(x, y, inner, inner));
+    g.fillStyle = BRONZE;
+    g.font = `italic 400 ${20 * u}px ${SERIF}`; g.letterSpacing = '0px'; g.textAlign = 'center';
     const cx = edge + railH / 2, cy = edge + railH / 2;
     [[cx, cy], [W - cx, cy], [cx, H - cy], [W - cx, H - cy]].forEach(([x, y]) => g.fillText('C', x, y + 1 * u));
     g.restore();
 
-    // inner hairlines
-    const inner = edge + railH;                    // 56u
+    // frame lines: hairline black outside the running text, bronze inside
+    g.strokeStyle = INK; g.lineWidth = 1.5 * u;
+    g.strokeRect(edge - 6 * u, edge - 6 * u, W - 2 * (edge - 6 * u), H - 2 * (edge - 6 * u));
     g.strokeStyle = BRONZE; g.lineWidth = 1.5 * u;
     g.strokeRect(inner + 12 * u, inner + 12 * u, W - 2 * (inner + 12 * u), H - 2 * (inner + 12 * u));
 
@@ -294,7 +325,7 @@
     g.fillText(state.cfg.eventName || state.cfg.storeName, W / 2, footerTop + 48 * u);
     const d = new Date();
     const dateStr = d.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }).toUpperCase();
-    g.font = `400 ${14 * u}px ${SANS}`; g.letterSpacing = `${5 * u}px`; g.fillStyle = '#5d564b';
+    g.font = `400 ${14 * u}px ${SANS}`; g.letterSpacing = `${5 * u}px`; g.fillStyle = GREY;
     g.fillText(dateStr, W / 2 + 2 * u, footerTop + 82 * u);
     g.fillStyle = BRONZE; g.font = `400 ${15 * u}px ${SANS}`; g.letterSpacing = `${3 * u}px`;
     g.fillText(state.cfg.hashtag || 'THECOLLECTIVE.IN', W / 2 + 1 * u, footerTop + 116 * u);
@@ -310,8 +341,9 @@
     if (slotW / slotH > ratio) slotW = slotH * ratio; else slotH = slotW / ratio;
     const x0 = (W - slotW) / 2;
     let y = n === 1 ? top + (bottom - top - slotH) / 2 : top + (bottom - top - (slotH * n + gap * (n - 1))) / 2;
+    const fx = filterCss(state.filter);
     frames.forEach((f) => {
-      drawCover(g, f, x0, y, slotW, slotH);
+      g.save(); g.filter = fx; drawCover(g, f, x0, y, slotW, slotH); g.restore();
       g.strokeStyle = INK; g.lineWidth = 2 * u; g.strokeRect(x0, y, slotW, slotH);
       // thin bronze offset line, like a mat
       g.strokeStyle = BRONZE; g.lineWidth = 1 * u; g.strokeRect(x0 - 8 * u, y - 8 * u, slotW + 16 * u, slotH + 16 * u);

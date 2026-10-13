@@ -78,15 +78,16 @@ async function sendToPrinter(pdfPath, { copies = 1 } = {}) {
     if (!winPrinter) throw new Error('pdf-to-printer is not installed. Run `npm install`.');
     const opts = { scale: 'fit', silent: true, copies };
     if (name) opts.printer = name;
-    if (windowsPaperSize) opts.paperSize = windowsPaperSize;
+    const paperSize = windowsPaperSize || config.paper.name;
+    if (paperSize) opts.paperSize = paperSize;
     await winPrinter.print(pdfPath, opts);
     return;
   }
-  const { widthIn, heightIn } = config.paper;
+  const { widthIn, heightIn, name: paperName } = config.paper;
   const args = [];
   if (name) args.push('-d', name);
   args.push('-n', String(copies));
-  args.push('-o', `media=Custom.${widthIn}x${heightIn}in`, '-o', 'fit-to-page');
+  args.push('-o', `media=${paperName || `Custom.${widthIn}x${heightIn}in`}`, '-o', 'fit-to-page');
   args.push(pdfPath);
   await run('lp', args);
 }
@@ -134,6 +135,7 @@ app.get('/api/status', async (_req, res) => {
       countdownSeconds: config.countdownSeconds,
       autoPrint: config.autoPrint,
       copies: config.copies,
+      defaultFilter: config.defaultFilter,
       mirrorPreview: config.mirrorPreview,
       mirrorPrint: config.mirrorPrint,
       idleResetSeconds: config.idleResetSeconds,

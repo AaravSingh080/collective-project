@@ -1,9 +1,8 @@
 {
   "port": 3000,
-  "storeName": "Palladium, Mumbai",
+  "storeName": "Ludhiana",
   "eventName": "",
   "hashtag": "#TheCollectiveIndia",
-
   "shots": 1,
   "countdownSeconds": 3,
   "autoPrint": false,
@@ -11,12 +10,16 @@
   "mirrorPreview": true,
   "mirrorPrint": false,
   "idleResetSeconds": 45,
-
-  "paper": { "widthIn": 4, "heightIn": 6, "dpi": 300 },
-
+  "paper": {
+    "name": "A5",
+    "widthIn": 5.83,
+    "heightIn": 8.27,
+    "dpi": 300
+  },
   "printer": {
     "name": "",
     "windowsPaperSize": "",
     "dryRun": false
-  }
+  },
+  "defaultFilter": "original"
 }

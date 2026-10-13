@@ -1,13 +1,14 @@
 # The Collective · Photo Booth
 
 A self-contained photo booth for an in-store PC with a webcam and a photo printer.
-Guests tap one button, the camera takes the shot, and a **4 × 6 inch (10 × 15 cm) print**
-framed with The Collective branding is sent straight to the printer. No dialogs, no files to click.
+Guests tap one button, the camera takes the shot, pick a finish (colour, mono, noir, warm, soft, vivid),
+and an **A5 print (half an A4 sheet, 148 × 210 mm)** framed with The Collective branding is sent
+straight to the printer. No dialogs, no files to click.
 
 ```
 webcam ──▶ browser kiosk UI (public/) ──▶ POST /api/print ──▶ server.js ──▶ printer
                       │                                          │
-                      └─ composes the branded 1200×1800 px print  └─ PNG → 4×6 PDF → OS print queue
+                      └─ composes the branded 1748×2480 px print  └─ PNG → A5 PDF → OS print queue
 ```
 
 ## About the brand
@@ -51,9 +52,10 @@ npm run dev           # DRY_RUN=1: prints are saved to ./prints/ as PNG + PDF, n
 | `copies` | Default copies per print (guest can adjust 1–5 on the review screen). |
 | `mirrorPreview` / `mirrorPrint` | Mirror the live view (selfie feel) and/or the printed photo. |
 | `idleResetSeconds` | Return to the start screen after inactivity. |
-| `paper` | Print size and resolution. Default 4 × 6 in at 300 dpi → 1200 × 1800 px. |
+| `paper` | Print size: `name` (OS media name, e.g. `A5`, `A4`, `4x6`), `widthIn`, `heightIn`, `dpi`. Default A5 at 300 dpi → 1748 × 2480 px. |
+| `defaultFilter` | Finish pre-selected on the review screen: `original`, `mono`, `noir`, `warm`, `soft`, `vivid`. |
 | `printer.name` | Exact printer name from `npm run printers`. Empty = system default. |
-| `printer.windowsPaperSize` | Windows only: a paper size name the driver lists (e.g. `4x6`, `Postcard`). |
+| `printer.windowsPaperSize` | Windows only: override the paper-size name sent to the driver (defaults to `paper.name`). |
 | `printer.dryRun` | Save files, don't print. |
 
 Environment overrides: `PORT`, `PRINTER`, `DRY_RUN=1`.
@@ -61,15 +63,16 @@ Environment overrides: `PORT`, `PRINTER`, `DRY_RUN=1`.
 ## Printer notes
 
 * **Windows**: printing goes through `pdf-to-printer` (bundled SumatraPDF), silent, scale-to-fit.
-  Set the printer's default paper to 4×6 / Postcard in *Printing Preferences* once so the driver
-  doesn't letterbox. Dye-sub printers (DNP, Canon SELPHY, HiTi) and inkjets with a 4×6 tray all work.
-* **macOS / Linux**: printing goes through CUPS `lp` with `media=Custom.4x6in` and `fit-to-page`.
+  Set the printer's default paper to A5 in *Printing Preferences* once so the driver doesn't letterbox.
+  Any A4 inkjet/laser can print A5 from its tray; dye-sub photo printers work with their own sizes.
+* **macOS / Linux**: printing goes through CUPS `lp` with `media=A5` and `fit-to-page`.
 * Every print is also saved to `prints/` (PNG + PDF) for reprints.
-* Different paper (e.g. 5 × 7 in): change `paper.widthIn`/`heightIn`; the layout scales.
+* Different paper (e.g. 4 × 6 in or A4): change `paper.name`, `widthIn` and `heightIn`; the layout scales.
 
 ## In the booth
 
 * Tap **Tap to begin** (or press Space). Countdown → flash → review.
+* Pick a finish on the review screen (colour, mono, noir, warm, soft, vivid); the preview updates instantly.
 * **Print** (Enter) sends it; **Retake** goes again; the screen resets itself after the print.
 * Settings drawer: tap the wordmark 5 times or press **Ctrl + A**: choose camera, shots, mirror,
   run a test print, enter fullscreen.

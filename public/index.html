@@ -41,7 +41,7 @@
       <span class="shutter-ring"></span>
       <span class="shutter-label">Tap to begin</span>
     </button>
-    <p class="hint" id="attractHint">A 4 × 6 inch print, framed by The Collective.</p>
+    <p class="hint" id="attractHint">An A5 print, framed by The Collective.</p>
     <div class="upload" id="upload" hidden>
       <label class="btn btn-ghost btn-sm" for="uploadInput" id="uploadLabel">Use a photo instead</label>
       <input type="file" id="uploadInput" accept="image/*">
@@ -61,11 +61,12 @@
     <div class="review-grid">
       <figure class="print-preview">
         <canvas id="printCanvas" width="1200" height="1800"></canvas>
-        <figcaption>Print preview · 4 × 6 in · 300 dpi</figcaption>
+        <figcaption id="previewCaption">Print preview · A5 · 300 dpi</figcaption>
       </figure>
       <div class="review-actions">
         <p class="eyebrow">Looking good</p>
         <h2 class="display display-sm">Print it?</h2>
+        <div class="filters" id="filters" role="radiogroup" aria-label="Photo finish"></div>
         <div class="copies" role="group" aria-label="Copies">
           <button type="button" class="copies-btn" data-delta="-1" aria-label="Fewer copies">−</button>
           <span class="copies-n"><b id="copiesN">1</b> copy</span>
