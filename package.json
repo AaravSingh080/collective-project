@@ -1,0 +1,19 @@
+{
+  "name": "collective-photo-booth",
+  "version": "1.0.0",
+  "description": "THE COLLECTIVE photo booth kiosk: webcam capture, branded 4x6 composition, direct-to-printer output.",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "DRY_RUN=1 node server.js",
+    "printers": "node server.js --list-printers"
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "express": "^5.1.0",
+    "pdfkit": "^0.17.1",
+    "pdf-to-printer": "^5.6.0"
+  },
+  "license": "MIT"
+}
