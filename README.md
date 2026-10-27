@@ -1,9 +1,18 @@
 # The Collective · Photo Booth
 
 A self-contained photo booth for an in-store PC with a webcam and a photo printer.
-Guests tap one button, the camera takes the shot, pick a finish (colour, mono, noir, warm, soft, vivid),
-and an **A5 print (half an A4 sheet, 148 × 210 mm)** framed with The Collective branding is sent
-straight to the printer. No dialogs, no files to click.
+Guests touch anywhere on the screen, the camera takes the shot, they pick a finish, and an
+**A5 print (half an A4 sheet, 148 × 210 mm)** framed with The Collective branding is sent straight
+to the printer. Screen and print are pure white with the black Didone wordmark.
+
+Finishes: three signature ones made for the brand, plus six classics.
+
+| Finish | What it does |
+| --- | --- |
+| **Gelatin** | Darkroom black and white: deep blacks, cool silver tone, fine grain, soft vignette. |
+| **Façade** | Bronze duotone from the store façades: espresso shadows, champagne highlights. |
+| **Prism** | Colour with a fine red/blue light split at the edges and a faint spectral leak, after the backlit prismatic sign. |
+| Colour, Mono, Noir, Warm, Soft, Vivid | Classic adjustments. | No dialogs, no files to click.
 
 ```
 webcam ──▶ browser kiosk UI (public/) ──▶ POST /api/print ──▶ server.js ──▶ printer
@@ -53,7 +62,7 @@ npm run dev           # DRY_RUN=1: prints are saved to ./prints/ as PNG + PDF, n
 | `mirrorPreview` / `mirrorPrint` | Mirror the live view (selfie feel) and/or the printed photo. |
 | `idleResetSeconds` | Return to the start screen after inactivity. |
 | `paper` | Print size: `name` (OS media name, e.g. `A5`, `A4`, `4x6`), `widthIn`, `heightIn`, `dpi`. Default A5 at 300 dpi → 1748 × 2480 px. |
-| `defaultFilter` | Finish pre-selected on the review screen: `original`, `mono`, `noir`, `warm`, `soft`, `vivid`. |
+| `defaultFilter` | Finish pre-selected on the review screen: `gelatin`, `facade`, `prism`, `original`, `mono`, `noir`, `warm`, `soft`, `vivid`. |
 | `printer.name` | Exact printer name from `npm run printers`. Empty = system default. |
 | `printer.windowsPaperSize` | Windows only: override the paper-size name sent to the driver (defaults to `paper.name`). |
 | `printer.dryRun` | Save files, don't print. |
@@ -71,11 +80,12 @@ Environment overrides: `PORT`, `PRINTER`, `DRY_RUN=1`.
 
 ## In the booth
 
-* Tap **Tap to begin** (or press Space). Countdown → flash → review.
-* Pick a finish on the review screen (colour, mono, noir, warm, soft, vivid); the preview updates instantly.
+* Touch anywhere on the welcome screen (or press Space). Countdown → flash → review.
+* Pick a finish on the review screen; the A5 preview updates instantly.
 * **Print** (Enter) sends it; **Retake** goes again; the screen resets itself after the print.
-* Settings drawer: tap the wordmark 5 times or press **Ctrl + A**: choose camera, shots, mirror,
-  run a test print, enter fullscreen.
+* Staff settings: tap the wordmark 5 times or press **Ctrl + A**. It shows printer and camera status,
+  and lets staff choose the camera, shots and mirror, load a photo if no camera is attached, run a
+  test print, and go fullscreen. Guests never see status or test text.
 
 ## Files
 

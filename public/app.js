@@ -1,66 +1,183 @@
 /* THE COLLECTIVE photo booth — kiosk logic.
    Stages: attract -> countdown -> review -> printing -> done | error
-   Talks to server.js (/api/status, /api/print). If no server answers (e.g. the design
-   preview), it runs in demo mode: everything works, "Print" is simulated. */
+   Talks to server.js (/api/status, /api/print). Without a server, printing is simulated
+   silently so the screens can still be reviewed. */
 (() => {
   'use strict';
 
   const $ = (id) => document.getElementById(id);
-  const booth = $('booth'), video = $('video'), flash = $('flash');
-  const printCanvas = $('printCanvas');
+  const booth = $('booth'), frame = $('frame'), video = $('video'), flash = $('flash');
+  const printCanvas = $('printCanvas'), still = $('stillCanvas');
 
-  // ---------- defaults (overridden by /api/status) ----------
   const state = {
     cfg: {
-      storeName: 'Palladium, Mumbai', eventName: '', hashtag: '#TheCollectiveIndia',
+      storeName: 'Jalandhar, Punjab', eventName: '', hashtag: '#TheCollectiveIndia',
       shots: 1, countdownSeconds: 3, autoPrint: false, copies: 1, defaultFilter: 'original',
       mirrorPreview: true, mirrorPrint: false, idleResetSeconds: 45,
       paper: { name: 'A5', widthIn: 5.83, heightIn: 8.27, dpi: 300 }
     },
-    filter: 'original',
-    server: null,          // /api/status payload or null => demo
+    server: null,
     stream: null,
-    cameraLabel: '',
-    shots: [],             // captured ImageBitmap/canvas list
+    uploaded: null,
+    shots: [],
+    filter: 'original',
     copies: 1,
     busy: false,
     idleTimer: null,
-    uploaded: null         // user-chosen photo when no camera is available
+    doneTimer: null
   };
 
-  // ---------- rails text ----------
-  const railText = Array(24).fill('The Collective').join(' · ') + ' · ';
-  document.querySelectorAll('.rail span').forEach(s => s.textContent = railText + railText);
+  // ---------- fit the 1920 x 1080 stage to the screen ----------
+  function fit() {
+    const s = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
+    document.documentElement.style.setProperty('--s', String(s));
+  }
+  window.addEventListener('resize', fit);
+  fit();
 
-  // ---------- photo finishes (CSS filter strings applied when the print is composed) ----------
-  const FILTERS = [
-    { id: 'original', label: 'Colour',  css: 'none' },
-    { id: 'mono',     label: 'Mono',    css: 'grayscale(1) contrast(1.08)' },
-    { id: 'noir',     label: 'Noir',    css: 'grayscale(1) contrast(1.35) brightness(.94)' },
-    { id: 'warm',     label: 'Warm',    css: 'sepia(.38) saturate(1.15) contrast(1.05)' },
-    { id: 'soft',     label: 'Soft',    css: 'brightness(1.06) contrast(.94) saturate(.85)' },
-    { id: 'vivid',    label: 'Vivid',   css: 'saturate(1.35) contrast(1.1)' }
+  // ---------- edges ----------
+  const run = Array(14).fill('THE COLLECTIVE').join(' · ');
+  document.querySelectorAll('.rail').forEach((r) => { r.textContent = run; });
+
+  // ---------- finishes ----------
+  // css: a canvas filter string. fx: extra pixel work for the signature finishes.
+  const FINISHES = [
+    { id: 'gelatin',  name: 'Gelatin',  tag: 'Darkroom silver', signature: true, css: 'grayscale(1) contrast(1.3) brightness(1.05)', fx: gelatin },
+    { id: 'facade',   name: 'Façade',   tag: 'Bronze duotone',  signature: true, css: 'grayscale(1) contrast(1.15)',                fx: facade },
+    { id: 'prism',    name: 'Prism',    tag: 'Spectral edge',   signature: true, css: 'saturate(1.12) brightness(1.04)',            fx: prism },
+    { id: 'original', name: 'Colour', css: 'none' },
+    { id: 'mono',     name: 'Mono',   css: 'grayscale(1) contrast(1.08)' },
+    { id: 'noir',     name: 'Noir',   css: 'grayscale(1) contrast(1.4) brightness(.92)' },
+    { id: 'warm',     name: 'Warm',   css: 'sepia(.38) saturate(1.15) contrast(1.05)' },
+    { id: 'soft',     name: 'Soft',   css: 'brightness(1.06) contrast(.94) saturate(.85)' },
+    { id: 'vivid',    name: 'Vivid',  css: 'saturate(1.35) contrast(1.1)' }
   ];
-  function filterCss(id) { return (FILTERS.find(f => f.id === id) || FILTERS[0]).css; }
-  function renderFilterChips() {
-    const box = $('filters'); box.innerHTML = '';
-    FILTERS.forEach(f => {
-      const b = document.createElement('button');
-      b.type = 'button'; b.className = 'chip'; b.textContent = f.label; b.dataset.id = f.id;
-      b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', String(f.id === state.filter));
-      b.addEventListener('click', async () => {
-        if (state.filter === f.id) return;
-        state.filter = f.id;
-        box.querySelectorAll('.chip').forEach(c => c.setAttribute('aria-checked', String(c.dataset.id === f.id)));
-        video.style.filter = f.css === 'none' ? '' : f.css;
-        if (state.shots.length) await compose(printCanvas, state.shots);
-        armIdle('review');
-      });
-      box.appendChild(b);
-    });
+  const finishById = (id) => FINISHES.find((f) => f.id === id) || FINISHES[3];
+
+  // Gelatin: cool silver tone, fine grain, soft vignette.
+  function gelatin(g, w, h) {
+    const img = g.getImageData(0, 0, w, h), d = img.data;
+    let seed = 1337;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647) - 0.5;
+    const grain = 22;
+    for (let i = 0; i < d.length; i += 4) {
+      const n = rnd() * grain;
+      const v = d[i] + n;
+      d[i] = clamp(v * 0.97);
+      d[i + 1] = clamp(v * 0.99 + 1);
+      d[i + 2] = clamp(v * 1.03 + 4);
+    }
+    g.putImageData(img, 0, 0);
+    const r = Math.hypot(w, h) / 2;
+    const vg = g.createRadialGradient(w / 2, h / 2, r * 0.45, w / 2, h / 2, r);
+    vg.addColorStop(0, 'rgba(18,24,34,0)');
+    vg.addColorStop(1, 'rgba(18,24,34,0.5)');
+    g.fillStyle = vg; g.fillRect(0, 0, w, h);
+  }
+  // Façade: map luminance from espresso shadows to champagne highlights.
+  function facade(g, w, h) {
+    const img = g.getImageData(0, 0, w, h), d = img.data;
+    const lo = [24, 18, 12], hi = [236, 219, 184];
+    for (let i = 0; i < d.length; i += 4) {
+      const t = Math.pow(d[i] / 255, 0.95);
+      d[i] = lo[0] + (hi[0] - lo[0]) * t;
+      d[i + 1] = lo[1] + (hi[1] - lo[1]) * t;
+      d[i + 2] = lo[2] + (hi[2] - lo[2]) * t;
+    }
+    g.putImageData(img, 0, 0);
+  }
+  // Prism: red and blue split apart towards the edges, plus a faint spectral leak.
+  function prism(g, w, h) {
+    const src = g.getImageData(0, 0, w, h), out = g.createImageData(w, h);
+    const s = src.data, o = out.data, cx = w / 2, max = Math.max(2, Math.round(w * 0.007));
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const k = (x - cx) / cx;
+        const shift = Math.round(max * k * Math.abs(k));
+        const xr = Math.min(w - 1, Math.max(0, x - shift));
+        const xb = Math.min(w - 1, Math.max(0, x + shift));
+        const i = (y * w + x) * 4;
+        o[i] = s[(y * w + xr) * 4];
+        o[i + 1] = s[i + 1];
+        o[i + 2] = s[(y * w + xb) * 4 + 2];
+        o[i + 3] = 255;
+      }
+    }
+    g.putImageData(out, 0, 0);
+    g.save();
+    g.globalCompositeOperation = 'screen';
+    let lg = g.createLinearGradient(0, 0, w * 0.45, h * 0.3);
+    lg.addColorStop(0, 'rgba(255,70,150,0.30)');
+    lg.addColorStop(0.45, 'rgba(255,190,70,0.14)');
+    lg.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = lg; g.fillRect(0, 0, w, h);
+    lg = g.createLinearGradient(w, h, w * 0.55, h * 0.7);
+    lg.addColorStop(0, 'rgba(70,190,255,0.28)');
+    lg.addColorStop(0.5, 'rgba(140,110,255,0.12)');
+    lg.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = lg; g.fillRect(0, 0, w, h);
+    g.restore();
+  }
+  function clamp(v) { return v < 0 ? 0 : v > 255 ? 255 : v; }
+
+  // Crop `src` to w x h (cover) and apply a finish. Returns a canvas.
+  function finished(src, w, h, id) {
+    const f = finishById(id);
+    const c = document.createElement('canvas');
+    c.width = Math.round(w); c.height = Math.round(h);
+    const g = c.getContext('2d', { willReadFrequently: !!f.fx });
+    g.filter = f.css;
+    drawCover(g, src, 0, 0, c.width, c.height);
+    g.filter = 'none';
+    if (f.fx) f.fx(g, c.width, c.height);
+    return c;
+  }
+  function drawCover(g, img, x, y, w, h) {
+    const iw = img.videoWidth || img.width, ih = img.videoHeight || img.height;
+    const r = Math.max(w / iw, h / ih), sw = w / r, sh = h / r;
+    g.drawImage(img, (iw - sw) / 2, (ih - sh) / 2, sw, sh, x, y, w, h);
   }
 
-  // ---------- stage control ----------
+  function renderFinishPickers() {
+    const sig = $('signature'), cls = $('classic');
+    sig.innerHTML = ''; cls.innerHTML = '';
+    FINISHES.forEach((f) => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.dataset.id = f.id;
+      b.setAttribute('aria-pressed', String(f.id === state.filter));
+      b.addEventListener('click', () => chooseFinish(f.id));
+      if (f.signature) {
+        b.className = 'sig';
+        const fr = document.createElement('span'); fr.className = 'sig-frame';
+        const cv = document.createElement('canvas'); cv.width = 424; cv.height = 424; cv.dataset.thumb = f.id;
+        fr.appendChild(cv);
+        const tx = document.createElement('span'); tx.className = 'sig-text';
+        const nm = document.createElement('span'); nm.className = 'sig-name'; nm.textContent = f.name;
+        const tg = document.createElement('span'); tg.className = 'sig-tag'; tg.textContent = f.tag;
+        tx.append(nm, tg); b.append(fr, tx); sig.appendChild(b);
+      } else {
+        b.className = 'chip'; b.textContent = f.name; cls.appendChild(b);
+      }
+    });
+  }
+  function paintThumbs() {
+    const src = state.shots[0];
+    if (!src) return;
+    document.querySelectorAll('canvas[data-thumb]').forEach((cv) => {
+      const t = finished(src, cv.width, cv.height, cv.dataset.thumb);
+      cv.getContext('2d').drawImage(t, 0, 0);
+    });
+  }
+  async function chooseFinish(id) {
+    if (state.filter === id) return;
+    state.filter = id;
+    document.querySelectorAll('#signature button, #classic button')
+      .forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.id === id)));
+    if (state.shots.length) await compose(printCanvas, state.shots);
+    armIdle('review');
+  }
+
+  // ---------- stages ----------
   function setStage(name) {
     booth.dataset.stage = name;
     armIdle(name);
@@ -68,22 +185,21 @@
   function armIdle(stage) {
     clearTimeout(state.idleTimer);
     if (stage === 'attract' || stage === 'countdown' || stage === 'printing') return;
-    state.idleTimer = setTimeout(() => goHome(), state.cfg.idleResetSeconds * 1000);
+    state.idleTimer = setTimeout(goHome, state.cfg.idleResetSeconds * 1000);
   }
   function goHome() {
+    clearTimeout(state.doneTimer);
     state.shots = [];
     state.filter = state.cfg.defaultFilter || 'original';
-    video.style.filter = '';
-    renderFilterChips();
     state.copies = state.cfg.copies || 1;
-    $('copiesN').textContent = state.copies;
+    updateCopies();
+    renderFinishPickers();
+    still.hidden = true;
     setStage('attract');
   }
-
-  // ---------- status chip ----------
-  function status(text, level) {
-    $('statusText').textContent = text;
-    $('status').className = 'status ' + (level || '');
+  function updateCopies() {
+    $('copiesN').textContent = state.copies;
+    $('copiesWord').textContent = state.copies === 1 ? 'copy' : 'copies';
   }
 
   // ---------- server ----------
@@ -94,89 +210,74 @@
       const s = await r.json();
       state.server = s;
       Object.assign(state.cfg, s.config || {});
-      if (s.mode === 'dry-run') status('Dry run · saving, not printing', 'warn');
-      else if (s.printer) status(`Printer · ${s.printer}`, 'ok');
-      else status('No printer found', 'bad');
-      $('adminServer').textContent = `${s.platform} · ${s.mode}`;
-      $('adminPrinter').textContent = s.printer || (s.printerError || 'none detected');
+      $('adminServer').textContent = s.mode === 'dry-run' ? 'Dry run, files only' : `Printing · ${s.platform}`;
+      $('adminPrinter').textContent = s.printer || s.printerError || 'none found';
     } catch {
       state.server = null;
-      status('Demo · print is simulated', 'warn');
-      $('adminServer').textContent = 'not connected (demo)';
-      $('adminPrinter').textContent = 'simulated';
+      $('adminServer').textContent = 'No print server. Prints are not sent.';
+      $('adminPrinter').textContent = '—';
     }
     applyConfig();
   }
   function applyConfig() {
     const c = state.cfg;
-    $('storeLabel').textContent = c.eventName || c.storeName;
-    $('doneHint').textContent = c.hashtag ? `Share it with ${c.hashtag}` : 'Thank you for visiting The Collective';
+    const place = c.eventName || c.storeName;
+    $('storeLabel').textContent = place;
+    const city = (c.storeName || '').split(',')[0].trim();
+    $('thanks').textContent = city ? `Thank you for visiting The Collective, ${city}.` : 'Thank you for visiting The Collective.';
+    const paper = c.paper.name || `${c.paper.widthIn} × ${c.paper.heightIn} in`;
+    $('attractLede').textContent = c.shots > 1
+      ? `Touch anywhere on the screen. Three shots, one ${paper} print, framed by The Collective.`
+      : `Touch anywhere on the screen. Three seconds later your portrait prints on ${paper}, framed by The Collective.`;
+    $('previewCaption').textContent = c.paper.name === 'A5' ? 'Your print · A5 · 148 × 210 mm' : `Your print · ${paper}`;
     $('shotsSelect').value = String(c.shots);
     $('mirrorChk').checked = !!c.mirrorPreview;
     booth.classList.toggle('mirror', !!c.mirrorPreview);
-    state.copies = c.copies || 1;
-    $('copiesN').textContent = state.copies;
-    const paperLabel = c.paper.name || `${c.paper.widthIn} × ${c.paper.heightIn} in`;
-    $('attractHint').textContent = c.shots > 1
-      ? `${c.shots} shots on one ${paperLabel} print, framed by The Collective.`
-      : `An ${paperLabel} print, framed by The Collective.`;
-    $('previewCaption').textContent = `Print preview · ${paperLabel} · ${c.paper.dpi} dpi`;
-    printCanvas.style.aspectRatio = `${c.paper.widthIn} / ${c.paper.heightIn}`;
+    const W = Math.round(c.paper.widthIn * c.paper.dpi), H = Math.round(c.paper.heightIn * c.paper.dpi);
+    printCanvas.width = W; printCanvas.height = H;
+    printCanvas.style.height = `${Math.round(490 * H / W)}px`;
   }
 
   // ---------- camera ----------
   async function startCamera(deviceId) {
     stopCamera();
-    if (!navigator.mediaDevices?.getUserMedia) return cameraUnavailable('Camera API not available');
-    const constraints = {
-      audio: false,
-      video: deviceId
-        ? { deviceId: { exact: deviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } }
-        : { facingMode: 'user', width: { ideal: 1920 }, height: { ideal: 1080 } }
-    };
+    if (!navigator.mediaDevices?.getUserMedia) return cameraUnavailable('not supported in this browser');
     try {
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: deviceId
+          ? { deviceId: { exact: deviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } }
+          : { facingMode: 'user', width: { ideal: 1920 }, height: { ideal: 1080 } }
+      });
       state.stream = stream;
       video.srcObject = stream;
       await video.play().catch(() => {});
       const track = stream.getVideoTracks()[0];
-      state.cameraLabel = track?.label || 'camera';
-      const s = track?.getSettings?.() || {};
-      $('adminCamera').textContent = `${state.cameraLabel} ${s.width ? `· ${s.width}×${s.height}` : ''}`;
+      const st = track?.getSettings?.() || {};
+      $('adminCamera').textContent = `${track?.label || 'camera'}${st.width ? ` · ${st.width}×${st.height}` : ''}`;
       video.hidden = false;
-      await listCameras(track?.getSettings?.().deviceId);
+      await listCameras(st.deviceId);
     } catch (err) {
       cameraUnavailable(err.message || String(err));
     }
   }
   function stopCamera() {
-    if (state.stream) { state.stream.getTracks().forEach(t => t.stop()); state.stream = null; }
+    if (state.stream) { state.stream.getTracks().forEach((t) => t.stop()); state.stream = null; }
   }
   function cameraUnavailable(reason) {
-    state.cameraLabel = '';
     $('adminCamera').textContent = `unavailable · ${reason}`;
     video.hidden = true;
-    $('upload').hidden = false;
-    if (!state.server) status('Demo · camera blocked here, using a sample portrait', 'warn');
-    else status(`Camera unavailable · ${reason}`, 'bad');
+    showStill(state.uploaded || standIn());
   }
-  $('uploadInput').addEventListener('change', (e) => {
-    const file = e.target.files?.[0]; if (!file) return;
-    const img = new Image();
-    img.onload = () => {
-      const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
-      c.getContext('2d').drawImage(img, 0, 0);
-      state.uploaded = c; URL.revokeObjectURL(img.src);
-      $('uploadLabel').textContent = 'Photo loaded · tap to begin';
-      status('Using your photo for the print', 'ok');
-    };
-    img.src = URL.createObjectURL(file);
-  });
+  function showStill(src) {
+    still.width = 1200; still.height = 1200;
+    drawCover(still.getContext('2d'), src, 0, 0, 1200, 1200);
+    still.hidden = false;
+  }
   async function listCameras(currentId) {
     try {
-      const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
-      const sel = $('cameraSelect');
-      sel.innerHTML = '';
+      const devs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput');
+      const sel = $('cameraSelect'); sel.innerHTML = '';
       devs.forEach((d, i) => {
         const o = document.createElement('option');
         o.value = d.deviceId; o.textContent = d.label || `Camera ${i + 1}`;
@@ -186,48 +287,37 @@
     } catch {}
   }
 
-  // Grab the current frame as a canvas (or a drawn sample when no camera).
   function grabFrame() {
-    const c = document.createElement('canvas');
-    if (!state.stream && state.uploaded) return state.uploaded;
     if (state.stream && video.videoWidth) {
+      const c = document.createElement('canvas');
       c.width = video.videoWidth; c.height = video.videoHeight;
-      const ctx = c.getContext('2d');
-      if (state.cfg.mirrorPrint) { ctx.translate(c.width, 0); ctx.scale(-1, 1); }
-      ctx.drawImage(video, 0, 0);
+      const g = c.getContext('2d');
+      if (state.cfg.mirrorPrint) { g.translate(c.width, 0); g.scale(-1, 1); }
+      g.drawImage(video, 0, 0);
       return c;
     }
-    return sampleFrame();
+    return state.uploaded || standIn();
   }
-  // A deliberately abstract stand-in: studio backdrop, soft key light, a silhouette. Used only
-  // when no camera is available (design preview), so the full flow and print layout can be seen.
-  function sampleFrame() {
-    const c = document.createElement('canvas'); c.width = 1600; c.height = 900;
+  // Studio backdrop with a silhouette, used only when there is no camera and no chosen photo.
+  function standIn() {
+    const c = document.createElement('canvas'); c.width = 1200; c.height = 1200;
     const g = c.getContext('2d');
-    const bg = g.createLinearGradient(0, 0, 0, 900);
-    bg.addColorStop(0, '#2a2622'); bg.addColorStop(1, '#0f0d0b');
-    g.fillStyle = bg; g.fillRect(0, 0, 1600, 900);
-    const key = g.createRadialGradient(1050, 250, 40, 1050, 250, 900);
-    key.addColorStop(0, 'rgba(217,187,134,.55)'); key.addColorStop(1, 'rgba(217,187,134,0)');
-    g.fillStyle = key; g.fillRect(0, 0, 1600, 900);
-    // floor line + shadow
-    g.fillStyle = 'rgba(0,0,0,.35)'; g.beginPath(); g.ellipse(800, 905, 420, 60, 0, 0, Math.PI * 2); g.fill();
-    // silhouette: shoulders + head
-    g.fillStyle = '#060504';
-    g.beginPath(); g.moveTo(420, 900); g.bezierCurveTo(470, 640, 640, 560, 800, 560);
-    g.bezierCurveTo(960, 560, 1130, 640, 1180, 900); g.closePath(); g.fill();
-    g.beginPath(); g.ellipse(800, 400, 150, 185, 0, 0, Math.PI * 2); g.fill();
-    // rim light
-    g.strokeStyle = 'rgba(217,187,134,.45)'; g.lineWidth = 6;
-    g.beginPath(); g.ellipse(800, 400, 150, 185, 0, -Math.PI * .55, Math.PI * .05); g.stroke();
-    g.font = '500 28px Jost, sans-serif'; g.fillStyle = 'rgba(243,238,228,.5)'; g.textAlign = 'center';
-    g.letterSpacing = '0.3em';
-    g.fillText('SAMPLE FRAME · CAMERA NOT AVAILABLE HERE', 800, 860);
+    const bg = g.createLinearGradient(0, 0, 500, 1200);
+    bg.addColorStop(0, '#d8c4a6'); bg.addColorStop(0.55, '#a28c72'); bg.addColorStop(1, '#6b5a4a');
+    g.fillStyle = bg; g.fillRect(0, 0, 1200, 1200);
+    const key = g.createRadialGradient(840, 290, 20, 840, 290, 640);
+    key.addColorStop(0, 'rgba(255,238,210,.95)'); key.addColorStop(1, 'rgba(255,238,210,0)');
+    g.fillStyle = key; g.fillRect(0, 0, 1200, 1200);
+    g.fillStyle = '#4a2a3c'; g.beginPath(); g.ellipse(600, 1200, 480, 400, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#1f6f78'; g.beginPath(); g.ellipse(600, 804, 204, 72, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#2a1f18';
+    g.beginPath(); g.ellipse(600, 696, 84, 120, 0, 0, Math.PI * 2); g.fill();
+    g.beginPath(); g.ellipse(600, 468, 180, 228, 0, 0, Math.PI * 2); g.fill();
     return c;
   }
 
-  // ---------- capture sequence ----------
-  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  // ---------- capture ----------
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   async function captureSequence() {
     if (state.busy) return;
     state.busy = true;
@@ -235,7 +325,7 @@
     const total = state.cfg.shots || 1;
     setStage('countdown');
     for (let i = 0; i < total; i++) {
-      $('shotLabel').textContent = total > 1 ? `Shot ${i + 1} of ${total}` : 'Get ready';
+      $('shotLabel').textContent = total > 1 ? `Shot ${i + 1} of ${total} · Eyes to the lens` : 'Eyes to the lens';
       for (let n = state.cfg.countdownSeconds; n >= 1; n--) {
         const el = $('countNum');
         el.textContent = n; el.classList.remove('tick'); void el.offsetWidth; el.classList.add('tick');
@@ -243,117 +333,110 @@
       }
       flash.classList.remove('on'); void flash.offsetWidth; flash.classList.add('on');
       state.shots.push(grabFrame());
-      $('countNum').textContent = '✓';
-      await sleep(total > 1 ? 1100 : 500);
+      await sleep(total > 1 ? 1000 : 450);
     }
     await compose(printCanvas, state.shots);
+    paintThumbs();
     state.busy = false;
     setStage('review');
-    if (state.cfg.autoPrint) { $('autoNote').hidden = false; await sleep(1800); doPrint(); }
-    else $('autoNote').hidden = true;
+    if (state.cfg.autoPrint) { await sleep(1800); doPrint(); }
   }
 
-  // ---------- the print: 4x6 in at 300 dpi, branding all around ----------
+  // ---------- the print ----------
+  // Laid out on a 559 x 794 grid (A5 at 96 px/in), scaled to the paper at its dpi.
   async function compose(canvas, frames) {
     const { widthIn, heightIn, dpi } = state.cfg.paper;
     const W = Math.round(widthIn * dpi), H = Math.round(heightIn * dpi);
     canvas.width = W; canvas.height = H;
     const g = canvas.getContext('2d');
-    const u = W / 1200; // scale unit so the layout holds for any paper size
-
-    try { await Promise.all([
-      document.fonts.load(`500 ${80 * u}px "Bodoni Moda"`),
-      document.fonts.load(`italic 400 ${30 * u}px "Bodoni Moda"`),
-      document.fonts.load(`400 ${20 * u}px Jost`)
-    ]); } catch {}
+    const u = W / 559, Hu = H / u;
     const SERIF = '"Bodoni Moda", Didot, "Playfair Display", Georgia, serif';
     const SANS = 'Jost, Futura, "Helvetica Neue", Arial, sans-serif';
-    const INK = '#000000', PAPER = '#ffffff', BRONZE = '#a8824c', GREY = '#6b6b6b';
+    const INK = '#000000', PAPER = '#ffffff', BRONZE = '#7d5f33', LINE = '#b39669', GREY = '#5e5e5e';
+    try {
+      await Promise.all([
+        document.fonts.load(`500 ${40 * u}px "Bodoni Moda"`),
+        document.fonts.load(`italic 400 ${15 * u}px "Bodoni Moda"`),
+        document.fonts.load(`400 ${7 * u}px Jost`)
+      ]);
+    } catch {}
 
-    // paper: pure white
-    g.fillStyle = PAPER; g.fillRect(0, 0, W, H);
-
-    // --- running wordmark border on all four sides (the "all around" branding) ---
-    const edge = 22 * u;                           // bleed-safe inset
-    const railH = 34 * u;
-    const inner = edge + railH;
     g.save();
-    g.fillStyle = INK;
-    g.font = `500 ${13 * u}px ${SERIF}`;
-    g.letterSpacing = `${4 * u}px`;
-    g.textBaseline = 'middle';
-    const word = 'THE COLLECTIVE   ·   ';
+    g.scale(u, u);
+    const w = 559, h = Hu;
+    g.fillStyle = PAPER; g.fillRect(0, 0, w, h);
+
+    // outer black hairline
+    g.strokeStyle = INK; g.lineWidth = 0.75;
+    g.strokeRect(7, 7, w - 14, h - 14);
+
+    // running wordmark on all four sides
+    g.fillStyle = INK; g.font = `400 6.2px ${SERIF}`; g.letterSpacing = '1.86px';
+    g.textBaseline = 'middle'; g.textAlign = 'left';
+    const word = 'THE COLLECTIVE · ';
     const ww = g.measureText(word).width;
-    const drawRun = (len) => { for (let x = -ww * .3; x < len; x += ww) g.fillText(word, x, 0); };
-    g.textAlign = 'left';
-    g.save(); g.translate(inner, edge + railH / 2); drawRun(W - 2 * inner); g.restore();
-    g.save(); g.translate(W - inner, H - edge - railH / 2); g.rotate(Math.PI); drawRun(W - 2 * inner); g.restore();
-    g.save(); g.translate(edge + railH / 2, H - inner); g.rotate(-Math.PI / 2); drawRun(H - 2 * inner); g.restore();
-    g.save(); g.translate(W - edge - railH / 2, inner); g.rotate(Math.PI / 2); drawRun(H - 2 * inner); g.restore();
-    // corner monograms on clean squares
-    g.fillStyle = PAPER;
-    [[0, 0], [W - inner, 0], [0, H - inner], [W - inner, H - inner]].forEach(([x, y]) => g.fillRect(x, y, inner, inner));
-    g.fillStyle = BRONZE;
-    g.font = `italic 400 ${20 * u}px ${SERIF}`; g.letterSpacing = '0px'; g.textAlign = 'center';
-    const cx = edge + railH / 2, cy = edge + railH / 2;
-    [[cx, cy], [W - cx, cy], [cx, H - cy], [W - cx, H - cy]].forEach(([x, y]) => g.fillText('C', x, y + 1 * u));
+    const band = (len) => {
+      const n = Math.ceil(len / ww) + 1, total = n * ww, x0 = (len - total) / 2;
+      g.save(); g.beginPath(); g.rect(0, -8, len, 16); g.clip();
+      for (let k = 0; k < n; k++) g.fillText(word, x0 + k * ww, 0);
+      g.restore();
+    };
+    g.save(); g.translate(26, 18); band(w - 52); g.restore();
+    g.save(); g.translate(w - 26, h - 18); g.rotate(Math.PI); band(w - 52); g.restore();
+    g.save(); g.translate(18, h - 26); g.rotate(-Math.PI / 2); band(h - 52); g.restore();
+    g.save(); g.translate(w - 18, 26); g.rotate(Math.PI / 2); band(h - 52); g.restore();
+
+    // corner monograms
+    g.fillStyle = BRONZE; g.font = `italic 400 9px ${SERIF}`; g.letterSpacing = '0px'; g.textAlign = 'center';
+    [[18, 18], [w - 18, 18], [18, h - 18], [w - 18, h - 18]].forEach(([x, y]) => g.fillText('C', x, y + 0.5));
+
+    // inner bronze hairline
+    g.strokeStyle = LINE; g.lineWidth = 0.75;
+    g.strokeRect(32, 32, w - 64, h - 64);
+
+    // header
+    g.textBaseline = 'alphabetic'; g.textAlign = 'center';
+    g.fillStyle = BRONZE; g.font = `italic 400 15px ${SERIF}`;
+    g.fillText('The', w / 2, 75);
+    g.fillStyle = INK; g.font = `500 40px ${SERIF}`; g.letterSpacing = '16.8px';
+    g.fillText('COLLECTIVE', w / 2 + 8.4, 113);
+    g.letterSpacing = '0px';
+    g.fillStyle = LINE; g.fillRect(w / 2 - 18, 127, 36, 0.75);
+
+    // footer
+    const fy = h - 144;
+    g.fillStyle = LINE; g.fillRect(w / 2 - 18, fy, 36, 0.75);
+    g.fillStyle = INK; g.font = `400 15px ${SERIF}`; g.letterSpacing = '0.9px';
+    g.fillText(state.cfg.eventName || state.cfg.storeName, w / 2 + 0.45, fy + 26);
+    const date = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }).toUpperCase();
+    g.fillStyle = GREY; g.font = `400 7px ${SANS}`; g.letterSpacing = '2.38px';
+    g.fillText(date, w / 2 + 1.19, fy + 44);
+    if (state.cfg.hashtag) {
+      g.fillStyle = BRONZE; g.font = `400 7.5px ${SANS}`; g.letterSpacing = '1.5px';
+      g.fillText(state.cfg.hashtag, w / 2 + 0.75, fy + 61);
+    }
+    g.letterSpacing = '0px';
+
+    // photos, between header (y 140) and footer rule
+    const top = 140, bottom = fy - 12, avail = bottom - top, n = frames.length;
+    let boxes = [];
+    if (n === 1) {
+      const S = Math.min(420, avail - 12);
+      boxes.push({ x: (w - S) / 2, y: top + (avail - S) / 2, w: S, h: S });
+    } else {
+      const gap = 12, rh = Math.min((avail - 12 - gap * (n - 1)) / n, 420 * 9 / 16), rw = rh * 16 / 9;
+      const y0 = top + (avail - (rh * n + gap * (n - 1))) / 2;
+      for (let i = 0; i < n; i++) boxes.push({ x: (w - rw) / 2, y: y0 + i * (rh + gap), w: rw, h: rh });
+    }
     g.restore();
 
-    // frame lines: hairline black outside the running text, bronze inside
-    g.strokeStyle = INK; g.lineWidth = 1.5 * u;
-    g.strokeRect(edge - 6 * u, edge - 6 * u, W - 2 * (edge - 6 * u), H - 2 * (edge - 6 * u));
-    g.strokeStyle = BRONZE; g.lineWidth = 1.5 * u;
-    g.strokeRect(inner + 12 * u, inner + 12 * u, W - 2 * (inner + 12 * u), H - 2 * (inner + 12 * u));
-
-    // --- header ---
-    const left = inner + 12 * u, right = W - left;
-    const contentW = right - left;
-    g.fillStyle = INK; g.textAlign = 'center'; g.textBaseline = 'alphabetic';
-    g.font = `italic 400 ${30 * u}px ${SERIF}`; g.letterSpacing = `${1 * u}px`;
-    g.fillStyle = BRONZE; g.fillText('The', W / 2, inner + 78 * u);
-    g.font = `500 ${86 * u}px ${SERIF}`; g.letterSpacing = `${28 * u}px`;
-    g.fillStyle = INK; g.fillText('COLLECTIVE', W / 2 + 14 * u, inner + 160 * u);
-    g.font = `400 ${15 * u}px ${SANS}`; g.letterSpacing = `${6 * u}px`; g.fillStyle = BRONZE;
-    g.fillText("INDIA'S LARGEST LUXURY MULTI-BRAND RETAILER", W / 2 + 3 * u, inner + 198 * u);
-    // short rule
-    g.fillStyle = BRONZE; g.fillRect(W / 2 - 40 * u, inner + 218 * u, 80 * u, 1.5 * u);
-
-    // --- footer ---
-    const footerTop = H - inner - 150 * u;
-    g.fillStyle = BRONZE; g.fillRect(W / 2 - 40 * u, footerTop, 80 * u, 1.5 * u);
-    g.fillStyle = INK; g.font = `400 ${26 * u}px ${SERIF}`; g.letterSpacing = `${2 * u}px`;
-    g.fillText(state.cfg.eventName || state.cfg.storeName, W / 2, footerTop + 48 * u);
-    const d = new Date();
-    const dateStr = d.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }).toUpperCase();
-    g.font = `400 ${14 * u}px ${SANS}`; g.letterSpacing = `${5 * u}px`; g.fillStyle = GREY;
-    g.fillText(dateStr, W / 2 + 2 * u, footerTop + 82 * u);
-    g.fillStyle = BRONZE; g.font = `400 ${15 * u}px ${SANS}`; g.letterSpacing = `${3 * u}px`;
-    g.fillText(state.cfg.hashtag || 'THECOLLECTIVE.IN', W / 2 + 1 * u, footerTop + 116 * u);
-
-    // --- photos ---
-    const top = inner + 248 * u, bottom = footerTop - 28 * u;
-    const gap = 18 * u;
-    const n = frames.length;
-    let slotH = (bottom - top - gap * (n - 1)) / n;
-    let slotW = contentW - 24 * u;
-    // single shot: fill the width in 4:3 (webcam-friendly); strip: keep 16:9 rows
-    const ratio = n === 1 ? 5 / 4 : 16 / 9;
-    if (slotW / slotH > ratio) slotW = slotH * ratio; else slotH = slotW / ratio;
-    const x0 = (W - slotW) / 2;
-    let y = n === 1 ? top + (bottom - top - slotH) / 2 : top + (bottom - top - (slotH * n + gap * (n - 1))) / 2;
-    const fx = filterCss(state.filter);
-    frames.forEach((f) => {
-      g.save(); g.filter = fx; drawCover(g, f, x0, y, slotW, slotH); g.restore();
-      g.strokeStyle = INK; g.lineWidth = 2 * u; g.strokeRect(x0, y, slotW, slotH);
-      // thin bronze offset line, like a mat
-      g.strokeStyle = BRONZE; g.lineWidth = 1 * u; g.strokeRect(x0 - 8 * u, y - 8 * u, slotW + 16 * u, slotH + 16 * u);
-      y += slotH + gap;
+    // draw photos at full print resolution
+    boxes.forEach((b, i) => {
+      const px = b.x * u, py = b.y * u, pw = b.w * u, ph = b.h * u;
+      g.drawImage(finished(frames[i], pw, ph, state.filter), px, py, pw, ph);
+      g.strokeStyle = INK; g.lineWidth = 1 * u; g.strokeRect(px, py, pw, ph);
+      g.strokeStyle = LINE; g.lineWidth = 0.75 * u; g.strokeRect(px - 5.5 * u, py - 5.5 * u, pw + 11 * u, ph + 11 * u);
     });
-  }
-  function drawCover(g, img, x, y, w, h) {
-    const iw = img.width, ih = img.height, r = Math.max(w / iw, h / ih);
-    const sw = w / r, sh = h / r, sx = (iw - sw) / 2, sy = (ih - sh) / 2;
-    g.drawImage(img, sx, sy, sw, sh, x, y, w, h);
   }
 
   // ---------- print ----------
@@ -361,74 +444,90 @@
     if (state.busy) return;
     state.busy = true;
     setStage('printing');
-    const dataUrl = printCanvas.toDataURL('image/png');
+    const started = Date.now();
     try {
       if (state.server) {
         const r = await fetch('/api/print', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ image: dataUrl, copies: state.copies })
+          body: JSON.stringify({ image: printCanvas.toDataURL('image/png'), copies: state.copies })
         });
         const j = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(j.error || r.statusText);
-        if (j.mode === 'dry-run') status(`Dry run · saved ${j.file}`, 'warn');
-      } else {
-        await sleep(2200); // demo
+        $('adminLast').textContent = `${j.mode === 'dry-run' ? 'saved' : 'printed'} ${j.file}`;
       }
+      await sleep(Math.max(0, 1800 - (Date.now() - started)));
       state.busy = false;
       setStage('done');
-      setTimeout(() => { if (booth.dataset.stage === 'done') goHome(); }, 9000);
+      state.doneTimer = setTimeout(() => { if (booth.dataset.stage === 'done') goHome(); }, 9000);
     } catch (err) {
       state.busy = false;
-      $('errorHint').textContent = err.message || String(err);
+      $('adminError').textContent = `Last print failed: ${err.message || err}`;
       setStage('error');
     }
   }
 
-  // ---------- admin ----------
-  let tapCount = 0, tapTimer;
+  // ---------- touch anywhere ----------
+  booth.addEventListener('click', (e) => {
+    if (booth.dataset.stage !== 'attract') return;
+    if (e.target.closest('#admin, #adminBtn')) return;
+    captureSequence();
+  });
+
+  // ---------- staff settings ----------
+  let taps = 0, tapTimer;
   $('adminBtn').addEventListener('click', () => {
-    tapCount++; clearTimeout(tapTimer);
-    tapTimer = setTimeout(() => tapCount = 0, 1600);
-    if (tapCount >= 5) { tapCount = 0; $('admin').hidden = false; }
+    taps++; clearTimeout(tapTimer);
+    tapTimer = setTimeout(() => { taps = 0; }, 1600);
+    if (taps >= 5) { taps = 0; $('admin').hidden = false; }
   });
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'a' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); $('admin').hidden = !$('admin').hidden; }
-    if (e.key === ' ' && booth.dataset.stage === 'attract') { e.preventDefault(); captureSequence(); }
-    if (e.key === 'Enter' && booth.dataset.stage === 'review') doPrint();
-    if (e.key === 'Escape') goHome();
+    if (e.key === 'a' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); $('admin').hidden = !$('admin').hidden; return; }
+    if (!$('admin').hidden) return;
+    if ((e.key === ' ' || e.key === 'Enter') && booth.dataset.stage === 'attract') { e.preventDefault(); captureSequence(); }
+    else if (e.key === 'Enter' && booth.dataset.stage === 'review') doPrint();
+    else if (e.key === 'Escape') goHome();
   });
-  $('adminClose').addEventListener('click', () => $('admin').hidden = true);
+  $('adminClose').addEventListener('click', () => { $('admin').hidden = true; });
   $('cameraSelect').addEventListener('change', (e) => startCamera(e.target.value));
   $('shotsSelect').addEventListener('change', (e) => { state.cfg.shots = Number(e.target.value); applyConfig(); });
   $('mirrorChk').addEventListener('change', (e) => { state.cfg.mirrorPreview = e.target.checked; booth.classList.toggle('mirror', e.target.checked); });
   $('fullscreenBtn').addEventListener('click', () => document.documentElement.requestFullscreen?.().catch(() => {}));
+  $('uploadInput').addEventListener('change', (e) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
+      c.getContext('2d').drawImage(img, 0, 0);
+      state.uploaded = c; URL.revokeObjectURL(img.src);
+      if (!state.stream) showStill(c);
+    };
+    img.src = URL.createObjectURL(file);
+  });
   $('testPrintBtn').addEventListener('click', async () => {
     $('admin').hidden = true;
-    state.shots = Array.from({ length: state.cfg.shots || 1 }, () => grabFrame());
+    state.shots = Array.from({ length: state.cfg.shots || 1 }, grabFrame);
     await compose(printCanvas, state.shots);
+    paintThumbs();
     doPrint();
   });
 
-  // ---------- wiring ----------
-  $('startBtn').addEventListener('click', captureSequence);
+  // ---------- review controls ----------
   $('printBtn').addEventListener('click', doPrint);
   $('retakeBtn').addEventListener('click', captureSequence);
   $('againBtn').addEventListener('click', goHome);
   $('retryBtn').addEventListener('click', doPrint);
   $('errorHomeBtn').addEventListener('click', goHome);
-  document.querySelectorAll('.copies-btn').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.round').forEach((b) => b.addEventListener('click', () => {
     state.copies = Math.min(5, Math.max(1, state.copies + Number(b.dataset.delta)));
-    $('copiesN').textContent = state.copies;
-    b.parentElement.querySelector('.copies-n').lastChild.textContent = state.copies === 1 ? ' copy' : ' copies';
+    updateCopies();
     armIdle('review');
   }));
   document.addEventListener('pointerdown', () => armIdle(booth.dataset.stage), { passive: true });
 
   (async () => {
+    renderFinishPickers();
     await loadStatus();
     await startCamera();
-    // pre-render a preview so the review stage never shows an empty sheet
-    compose(printCanvas, [sampleFrame()]);
     goHome();
   })();
 })();

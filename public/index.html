@@ -5,127 +5,139 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>The Collective Photo Booth</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,400;6..96,500&family=Jost:wght@300;400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400;0,6..96,500;1,6..96,400&family=Jost:wght@300;400;500&display=swap">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 
 <main id="booth" class="booth" data-stage="attract">
+  <div class="frame" id="frame">
 
-  <!-- live camera, always behind -->
-  <div class="stage-camera">
-    <video id="video" autoplay playsinline muted></video>
-    <div class="vignette"></div>
-    <div id="flash" class="flash"></div>
-  </div>
+    <!-- the wordmark runs around all four edges -->
+    <div class="rail rail-top" aria-hidden="true"></div>
+    <div class="rail rail-bottom" aria-hidden="true"></div>
+    <div class="rail rail-left" aria-hidden="true"></div>
+    <div class="rail rail-right" aria-hidden="true"></div>
+    <span class="corner tl" aria-hidden="true">C</span>
+    <span class="corner tr" aria-hidden="true">C</span>
+    <span class="corner bl" aria-hidden="true">C</span>
+    <span class="corner br" aria-hidden="true">C</span>
 
-  <!-- marquee rails: branding runs around the whole screen -->
-  <div class="rail rail-top" aria-hidden="true"><span></span></div>
-  <div class="rail rail-bottom" aria-hidden="true"><span></span></div>
-  <div class="rail rail-left" aria-hidden="true"><span></span></div>
-  <div class="rail rail-right" aria-hidden="true"><span></span></div>
+    <header class="masthead">
+      <button id="adminBtn" class="wordmark" type="button" aria-label="The Collective">
+        <span class="wordmark-the">The</span>
+        <span class="wordmark-main">COLLECTIVE</span>
+      </button>
+      <p class="masthead-sub">Photo Booth · <span id="storeLabel">Jalandhar, Punjab</span></p>
+    </header>
 
-  <header class="masthead">
-    <button id="adminBtn" class="wordmark" type="button" aria-label="The Collective">
-      <span class="wordmark-the">The</span>
-      <span class="wordmark-main">COLLECTIVE</span>
-    </button>
-    <p class="masthead-sub">Photo Booth · <span id="storeLabel">Palladium, Mumbai</span></p>
-  </header>
-
-  <!-- ATTRACT -->
-  <section class="panel panel-attract" data-for="attract">
-    <p class="eyebrow">Step in. Look up. Keep the moment.</p>
-    <h1 class="display">Your portrait,<br>printed in seconds.</h1>
-    <button id="startBtn" class="shutter" type="button">
-      <span class="shutter-ring"></span>
-      <span class="shutter-label">Tap to begin</span>
-    </button>
-    <p class="hint" id="attractHint">An A5 print, framed by The Collective.</p>
-    <div class="upload" id="upload" hidden>
-      <label class="btn btn-ghost btn-sm" for="uploadInput" id="uploadLabel">Use a photo instead</label>
-      <input type="file" id="uploadInput" accept="image/*">
-      <span class="hint" style="font-size:12px">No camera here, so pick any picture to see the print layout.</span>
-    </div>
-  </section>
-
-  <!-- COUNTDOWN -->
-  <section class="panel panel-count" data-for="countdown">
-    <p class="eyebrow" id="shotLabel">Shot 1 of 1</p>
-    <div class="count" id="countNum">3</div>
-    <p class="hint">Eyes to the lens</p>
-  </section>
-
-  <!-- REVIEW -->
-  <section class="panel panel-review" data-for="review">
-    <div class="review-grid">
-      <figure class="print-preview">
-        <canvas id="printCanvas" width="1200" height="1800"></canvas>
-        <figcaption id="previewCaption">Print preview · A5 · 300 dpi</figcaption>
-      </figure>
-      <div class="review-actions">
-        <p class="eyebrow">Looking good</p>
-        <h2 class="display display-sm">Print it?</h2>
-        <div class="filters" id="filters" role="radiogroup" aria-label="Photo finish"></div>
-        <div class="copies" role="group" aria-label="Copies">
-          <button type="button" class="copies-btn" data-delta="-1" aria-label="Fewer copies">−</button>
-          <span class="copies-n"><b id="copiesN">1</b> copy</span>
-          <button type="button" class="copies-btn" data-delta="1" aria-label="More copies">+</button>
+    <!-- WELCOME + COUNTDOWN -->
+    <section class="live" aria-live="polite">
+      <div class="live-copy">
+        <div class="copy-attract">
+          <p class="eyebrow">Step in · Look up · Keep the moment</p>
+          <h1 class="display">A portrait<br>to keep.</h1>
+          <p class="lede" id="attractLede">Touch anywhere on the screen. Three seconds later your portrait prints on A5, framed by The Collective.</p>
         </div>
-        <button id="printBtn" class="btn btn-primary" type="button">Print</button>
-        <button id="retakeBtn" class="btn btn-ghost" type="button">Retake</button>
-        <p class="auto-note" id="autoNote" hidden>Printing automatically…</p>
+        <div class="copy-countdown">
+          <p class="eyebrow" id="shotLabel">Eyes to the lens</p>
+          <p class="count" id="countNum">3</p>
+        </div>
       </div>
-    </div>
-  </section>
+      <figure class="camera">
+        <div class="mat">
+          <div class="window">
+            <video id="video" autoplay playsinline muted></video>
+            <canvas id="stillCanvas" class="still" hidden></canvas>
+            <div id="flash" class="flash"></div>
+          </div>
+        </div>
+        <figcaption>What you see is what prints</figcaption>
+      </figure>
+    </section>
 
-  <!-- PRINTING / DONE -->
-  <section class="panel panel-done" data-for="printing">
-    <div class="spinner" aria-hidden="true"></div>
-    <p class="eyebrow">Sending to printer</p>
-    <h2 class="display display-sm">One moment.</h2>
-  </section>
-  <section class="panel panel-done" data-for="done">
-    <p class="eyebrow">Printed</p>
-    <h2 class="display display-sm">Collect your print below.</h2>
-    <p class="hint" id="doneHint">Share it with #TheCollectiveIndia</p>
-    <button id="againBtn" class="btn btn-ghost" type="button">Take another</button>
-  </section>
-  <section class="panel panel-done" data-for="error">
-    <p class="eyebrow eyebrow-warn">Printer problem</p>
-    <h2 class="display display-sm">We couldn't print that.</h2>
-    <p class="hint" id="errorHint"></p>
-    <div class="row">
-      <button id="retryBtn" class="btn btn-primary" type="button">Try again</button>
-      <button id="errorHomeBtn" class="btn btn-ghost" type="button">Start over</button>
+    <div class="prompt" aria-hidden="true">
+      <span class="prompt-line"></span>
+      <span class="prompt-text">Touch anywhere to begin</span>
     </div>
-  </section>
 
-  <!-- status chip -->
-  <div class="status" id="status" aria-live="polite">
-    <span class="dot"></span><span id="statusText">Connecting…</span>
+    <!-- REVIEW -->
+    <section class="review">
+      <figure class="print-preview">
+        <canvas id="printCanvas" width="1749" height="2481"></canvas>
+        <figcaption id="previewCaption">Your print · A5 · 148 × 210 mm</figcaption>
+      </figure>
+      <div class="finish-panel">
+        <div class="finish-head">
+          <p class="eyebrow">Choose a finish</p>
+          <h2 class="display display-sm">Signature finishes</h2>
+        </div>
+        <div class="signature" id="signature"></div>
+        <div class="classic-wrap">
+          <p class="label">Classic</p>
+          <div class="classic" id="classic"></div>
+        </div>
+        <div class="copies" role="group" aria-label="Copies">
+          <button type="button" class="round" data-delta="-1" aria-label="Fewer copies">−</button>
+          <p class="copies-n"><b id="copiesN">1</b> <span id="copiesWord">copy</span></p>
+          <button type="button" class="round" data-delta="1" aria-label="More copies">+</button>
+        </div>
+        <div class="actions">
+          <button id="printBtn" class="btn btn-solid" type="button">Print</button>
+          <button id="retakeBtn" class="btn btn-line" type="button">Retake</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- PRINTING -->
+    <section class="center center-printing">
+      <span class="spinner" aria-hidden="true"></span>
+      <p class="eyebrow">Printing</p>
+      <h2 class="display display-md">One moment.</h2>
+    </section>
+
+    <!-- PRINTED -->
+    <section class="center center-done">
+      <p class="eyebrow">Printed</p>
+      <h2 class="display display-md">Collect your portrait below.</h2>
+      <p class="lede" id="thanks">Thank you for visiting The Collective, Jalandhar.</p>
+      <button id="againBtn" class="btn btn-line" type="button">Take another</button>
+    </section>
+
+    <!-- PRINTER PROBLEM -->
+    <section class="center center-error">
+      <p class="eyebrow">Printer</p>
+      <h2 class="display display-md">The print didn't go through.</h2>
+      <p class="lede">Please ask a member of our team for help.</p>
+      <div class="actions">
+        <button id="retryBtn" class="btn btn-solid" type="button">Try again</button>
+        <button id="errorHomeBtn" class="btn btn-line" type="button">Start over</button>
+      </div>
+    </section>
   </div>
 
-  <!-- ADMIN DRAWER (tap the wordmark 5 times) -->
+  <!-- STAFF SETTINGS: tap the wordmark 5 times, or Ctrl + A -->
   <aside id="admin" class="admin" hidden>
     <div class="admin-head">
       <strong>Booth settings</strong>
-      <button id="adminClose" class="btn btn-ghost btn-sm" type="button">Close</button>
+      <button id="adminClose" class="btn-sm" type="button">Close</button>
     </div>
     <dl class="admin-info">
-      <dt>Server</dt><dd id="adminServer">—</dd>
+      <dt>Mode</dt><dd id="adminServer">—</dd>
       <dt>Printer</dt><dd id="adminPrinter">—</dd>
       <dt>Camera</dt><dd id="adminCamera">—</dd>
+      <dt>Last print</dt><dd id="adminLast">—</dd>
     </dl>
     <label class="field"><span>Camera</span><select id="cameraSelect"></select></label>
     <label class="field"><span>Shots per print</span>
       <select id="shotsSelect"><option value="1">1 · single portrait</option><option value="3">3 · strip</option></select></label>
     <label class="field check"><input type="checkbox" id="mirrorChk"> <span>Mirror preview</span></label>
-    <div class="row">
-      <button id="testPrintBtn" class="btn btn-primary btn-sm" type="button">Test print</button>
-      <button id="fullscreenBtn" class="btn btn-ghost btn-sm" type="button">Fullscreen</button>
+    <label class="field"><span>No camera? Use a photo</span><input type="file" id="uploadInput" accept="image/*"></label>
+    <div class="admin-row">
+      <button id="testPrintBtn" class="btn-sm" type="button">Test print</button>
+      <button id="fullscreenBtn" class="btn-sm" type="button">Fullscreen</button>
     </div>
-    <p class="admin-note">Printer, paper size and store name live in <code>config.json</code>.</p>
+    <p class="admin-note" id="adminError"></p>
   </aside>
 </main>
 
