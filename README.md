@@ -31,7 +31,24 @@ wordmark, and the brand name running around every edge of the screen and the pri
 Brand copy used on the print ("India's largest luxury multi-brand retailer", `#TheCollectiveIndia`)
 can be changed in `config.json`.
 
-## Run it on the booth PC (Windows)
+## Go live in 3 minutes (no install)
+
+Only Google Chrome is needed. No Node.js, no internet once it is running.
+
+1. Download the booth:
+   https://github.com/AaravSingh080/collective-project/archive/refs/heads/claude/cool-fermat-h8qdyv.zip
+   and unzip it on the booth PC.
+2. Plug in the webcam. Make the photo printer the **default printer** and set its paper to **A5**.
+3. Open the `kiosk` folder and double-click **`Start Booth.bat`**.
+
+Chrome opens the booth full screen with the camera allowed, and Chrome's kiosk printing sends each
+A5 sheet straight to the default printer with no dialog. Fonts are built into `kiosk/booth.html`,
+so it looks right offline. Every print is numbered (Portrait No. 0001, 0002, ...) on that PC.
+
+## Full version (Windows, needs Node.js)
+
+Use this when you want to pick the printer by name, keep a PNG and PDF of every print, or use
+dry-run testing. Everything else is the same as the no-install version.
 
 1. Install **Node.js LTS** from nodejs.org and **Google Chrome**, if they are not there already.
 2. Plug in the webcam. Set the photo printer as the **default printer** and set its paper to **A5**
@@ -107,10 +124,13 @@ Environment overrides: `PORT`, `PRINTER`, `DRY_RUN=1`.
 ```
 server.js             Express print server (status, printers, print)
 config.json           booth + printer settings
+kiosk/booth.html      the whole booth in one file (no-install version, built from public/)
+kiosk/Start Booth.bat no-install launcher: Chrome kiosk + silent printing
 public/index.html     kiosk markup
+public/fonts/         Bodoni Moda and Manrope (SIL Open Font License)
 public/styles.css     design tokens and layout
 public/app.js         camera, countdown, print composition, printing
-scripts/build-single-file.mjs   bundles public/ into dist/booth.html for previews
+scripts/build-single-file.mjs   rebuilds kiosk/booth.html after any change in public/
 start-kiosk.bat / .sh launchers
 prints/               saved prints
 ```

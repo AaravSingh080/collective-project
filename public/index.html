@@ -4,8 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>The Collective Photo Booth</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400..700;1,6..96,400..700&family=Jost:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="fonts.css">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -43,6 +42,11 @@
           <p class="eyebrow">Step in · Look up · Keep the moment</p>
           <h1 class="display">A portrait<br>to keep.</h1>
           <p class="lede" id="attractLede">Touch anywhere on the screen. Three seconds later your portrait prints on A5, framed by The Collective.</p>
+          <ol class="steps">
+            <li><span class="step-n">1</span><span>Touch the screen</span></li>
+            <li><span class="step-n">2</span><span>Hold your pose</span></li>
+            <li><span class="step-n">3</span><span>Collect your print</span></li>
+          </ol>
         </div>
         <div class="copy-countdown">
           <p class="eyebrow" id="shotLabel">Eyes to the lens</p>
@@ -102,11 +106,14 @@
     </section>
 
     <!-- PRINTED -->
-    <section class="center center-done">
-      <p class="eyebrow">Printed</p>
-      <h2 class="display display-md">Collect your portrait below.</h2>
-      <p class="lede" id="thanks">Thank you for visiting The Collective, Jalandhar.</p>
-      <button id="againBtn" class="btn btn-line" type="button">Take another</button>
+    <section class="done">
+      <img id="doneImg" class="done-print" alt="Your printed portrait">
+      <div class="done-copy">
+        <p class="eyebrow" id="doneNo">Printed</p>
+        <h2 class="display display-md">Collect your portrait below.</h2>
+        <p class="lede" id="thanks">Thank you for visiting The Collective, Jalandhar.</p>
+        <button id="againBtn" class="btn btn-line" type="button">Take another</button>
+      </div>
     </section>
 
     <!-- PRINTER PROBLEM -->
@@ -145,6 +152,9 @@
     <p class="admin-note" id="adminError"></p>
   </aside>
 </main>
+
+<!-- filled only while printing from the browser (no print server) -->
+<div id="printSheet" class="print-sheet" aria-hidden="true"><img id="printImg" alt=""></div>
 
 <script src="app.js"></script>
 </body>

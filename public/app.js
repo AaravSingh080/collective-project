@@ -1,7 +1,9 @@
 /* THE COLLECTIVE photo booth — kiosk logic.
    Stages: attract -> countdown -> review -> printing -> done | error
-   Talks to server.js (/api/status, /api/print). Without a server, printing is simulated
-   silently so the screens can still be reviewed. */
+   Two ways to print:
+   - with server.js running: POST /api/print, the server sends a PDF to the OS print queue;
+   - without it (booth.html opened straight in Chrome): window.print() of an A5 sheet.
+     Chrome started with --kiosk-printing prints that silently to the default printer. */
 (() => {
   'use strict';
 
@@ -27,6 +29,13 @@
     doneTimer: null,
     run: 0
   };
+
+  // ---------- portrait numbers: every print gets the next one ----------
+  function lastNo() {
+    try { return Number(localStorage.getItem('booth.portraitNo')) || 0; } catch { return 0; }
+  }
+  function saveNo(n) { try { localStorage.setItem('booth.portraitNo', String(n)); } catch {} }
+  const fmtNo = (n) => `No. ${String(n).padStart(4, '0')}`;
 
   // ---------- fit the 1920 x 1080 stage to the screen ----------
   function fit() {
@@ -256,6 +265,7 @@
   // ---------- server ----------
   async function loadStatus() {
     try {
+      if (location.protocol === 'file:') throw new Error('opened as a file');
       const r = await fetch('/api/status', { cache: 'no-store' });
       if (!r.ok) throw new Error(r.statusText);
       const s = await r.json();
@@ -265,7 +275,7 @@
       $('adminPrinter').textContent = s.printer || s.printerError || 'none found';
     } catch {
       state.server = null;
-      $('adminServer').textContent = 'No print server. Prints are not sent.';
+      $('adminServer').textContent = 'Browser printing (no print server)';
       $('adminPrinter').textContent = '—';
     }
     applyConfig();
@@ -408,13 +418,13 @@
     const g = canvas.getContext('2d');
     const u = W / 559, Hu = H / u;
     const SERIF = '"Bodoni Moda", Didot, "Playfair Display", Georgia, serif';
-    const SANS = 'Jost, Futura, "Helvetica Neue", Arial, sans-serif';
+    const SANS = 'Manrope, "Avenir Next", "Segoe UI", "Helvetica Neue", Arial, sans-serif';
     const INK = '#000000', PAPER = '#ffffff', BRONZE = '#6e522b', LINE = '#b39669', GREY = '#3a3a3a';
     try {
       await Promise.all([
         document.fonts.load(`600 ${40 * u}px "Bodoni Moda"`),
         document.fonts.load(`italic 600 ${17 * u}px "Bodoni Moda"`),
-        document.fonts.load(`600 ${9 * u}px Jost`)
+        document.fonts.load(`700 ${9 * u}px Manrope`)
       ]);
     } catch {}
 
@@ -466,10 +476,11 @@
     g.fillStyle = INK; g.font = `600 18px ${SERIF}`; g.letterSpacing = '0.6px';
     g.fillText(state.cfg.eventName || state.cfg.storeName, w / 2 + 0.3, fy + 28);
     const date = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }).toUpperCase();
-    g.fillStyle = GREY; g.font = `600 9px ${SANS}`; g.letterSpacing = '2.2px';
-    g.fillText(date, w / 2 + 1.1, fy + 48);
+    const meta = `${date}  \u00b7  ${fmtNo(lastNo() + 1).toUpperCase()}`;
+    g.fillStyle = GREY; g.font = `700 8.5px ${SANS}`; g.letterSpacing = '1.8px';
+    g.fillText(meta, w / 2 + 0.9, fy + 48);
     if (state.cfg.hashtag) {
-      g.fillStyle = BRONZE; g.font = `600 9.5px ${SANS}`; g.letterSpacing = '1.2px';
+      g.fillStyle = BRONZE; g.font = `700 9px ${SANS}`; g.letterSpacing = '0.9px';
       g.fillText(state.cfg.hashtag, w / 2 + 0.6, fy + 66);
     }
     g.letterSpacing = '0px';
@@ -497,21 +508,42 @@
   }
 
   // ---------- print ----------
+  // Print from the browser itself: an A5 page holding only the composed sheet.
+  async function printViaBrowser(dataUrl, copies) {
+    const { widthIn, heightIn } = state.cfg.paper;
+    let page = document.getElementById('pageSize');
+    if (!page) { page = document.createElement('style'); page.id = 'pageSize'; document.head.appendChild(page); }
+    page.textContent = `@page { size: ${widthIn}in ${heightIn}in; margin: 0; }
+      @media print { .print-sheet { width: ${widthIn}in; height: ${heightIn}in; } }`;
+    const img = $('printImg');
+    await new Promise((res) => { img.onload = res; img.onerror = res; img.src = dataUrl; });
+    for (let i = 0; i < copies; i++) { window.print(); await sleep(300); }
+  }
+
   async function doPrint() {
     if (state.busy) return;
     state.busy = true;
     setStage('printing');
     const started = Date.now();
+    const no = lastNo() + 1;
     try {
+      const dataUrl = printCanvas.toDataURL('image/png');
+      await sleep(400); // let the printing screen paint first
       if (state.server) {
         const r = await fetch('/api/print', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ image: printCanvas.toDataURL('image/png'), copies: state.copies })
+          body: JSON.stringify({ image: dataUrl, copies: state.copies })
         });
         const j = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(j.error || r.statusText);
-        $('adminLast').textContent = `${j.mode === 'dry-run' ? 'saved' : 'printed'} ${j.file}`;
+        $('adminLast').textContent = `${fmtNo(no)} · ${j.mode === 'dry-run' ? 'saved' : 'printed'} ${j.file}`;
+      } else {
+        await printViaBrowser(dataUrl, state.copies);
+        $('adminLast').textContent = `${fmtNo(no)} · sent to the browser printer`;
       }
+      saveNo(no);
+      $('doneImg').src = printCanvas.toDataURL('image/jpeg', 0.85);
+      $('doneNo').textContent = `Printed · Portrait ${fmtNo(no)}`;
       await sleep(Math.max(0, 1800 - (Date.now() - started)));
       state.busy = false;
       setStage('done');
