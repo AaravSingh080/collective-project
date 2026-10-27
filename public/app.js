@@ -24,7 +24,8 @@
     copies: 1,
     busy: false,
     idleTimer: null,
-    doneTimer: null
+    doneTimer: null,
+    run: 0
   };
 
   // ---------- fit the 1920 x 1080 stage to the screen ----------
@@ -36,8 +37,12 @@
   fit();
 
   // ---------- edges ----------
-  const run = Array(14).fill('THE COLLECTIVE').join(' · ');
-  document.querySelectorAll('.rail').forEach((r) => { r.textContent = run; });
+  const half = Array(10).fill('THE COLLECTIVE\u2002\u00b7\u2002').join('');
+  document.querySelectorAll('.rail').forEach((r) => {
+    const span = document.createElement('span');
+    span.textContent = half + half;
+    r.replaceChildren(span);
+  });
 
   // ---------- finishes ----------
   // css: a canvas filter string. fx: extra pixel work for the signature finishes.
@@ -49,7 +54,7 @@
     { id: 'mono',     name: 'Mono',   css: 'grayscale(1) contrast(1.08)' },
     { id: 'noir',     name: 'Noir',   css: 'grayscale(1) contrast(1.4) brightness(.92)' },
     { id: 'warm',     name: 'Warm',   css: 'sepia(.38) saturate(1.15) contrast(1.05)' },
-    { id: 'soft',     name: 'Soft',   css: 'brightness(1.06) contrast(.94) saturate(.85)' },
+    { id: 'vintage',  name: 'Vintage', css: 'grayscale(1) contrast(1.12)', fx: vintage },
     { id: 'vivid',    name: 'Vivid',  css: 'saturate(1.35) contrast(1.1)' }
   ];
   const finishById = (id) => FINISHES.find((f) => f.id === id) || FINISHES[3];
@@ -117,6 +122,50 @@
     lg.addColorStop(1, 'rgba(255,255,255,0)');
     g.fillStyle = lg; g.fillRect(0, 0, w, h);
     g.restore();
+  }
+  // Vintage: black and white on faded, old paper. Lifted blacks, heavy clumpy grain,
+  // dust, a few hairline scratches and a deep vignette.
+  function vintage(g, w, h) {
+    const img = g.getImageData(0, 0, w, h), d = img.data;
+    const rnd = Math.random;
+    for (let i = 0; i < d.length; i += 4) {
+      const n = (rnd() + rnd() + rnd() - 1.5) * 70;
+      const v = 30 + d[i] * 0.8 + n;
+      d[i] = d[i + 1] = d[i + 2] = clamp(v);
+    }
+    g.putImageData(img, 0, 0);
+    // coarse grain: low-res noise scaled up, blended over the fine grain
+    const cw = Math.max(8, Math.round(w / 3)), ch = Math.max(8, Math.round(h / 3));
+    const nc = document.createElement('canvas'); nc.width = cw; nc.height = ch;
+    const ng = nc.getContext('2d'), nd = ng.createImageData(cw, ch);
+    for (let i = 0; i < nd.data.length; i += 4) {
+      const v = 128 + (rnd() - 0.5) * 200;
+      nd.data[i] = nd.data[i + 1] = nd.data[i + 2] = v; nd.data[i + 3] = 255;
+    }
+    ng.putImageData(nd, 0, 0);
+    g.save();
+    g.globalCompositeOperation = 'overlay'; g.globalAlpha = 0.45;
+    g.imageSmoothingEnabled = true; g.drawImage(nc, 0, 0, w, h);
+    g.restore();
+    // dust and scratches
+    const k = w / 1000;
+    g.save();
+    for (let i = 0; i < 70; i++) {
+      g.fillStyle = rnd() < 0.6 ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.5)';
+      g.beginPath(); g.arc(rnd() * w, rnd() * h, (0.6 + rnd() * 2.2) * k, 0, Math.PI * 2); g.fill();
+    }
+    g.lineWidth = Math.max(1, 0.8 * k);
+    for (let i = 0; i < 3; i++) {
+      const x = rnd() * w;
+      g.strokeStyle = 'rgba(255,255,255,0.22)';
+      g.beginPath(); g.moveTo(x, rnd() * h * 0.3); g.lineTo(x + (rnd() - 0.5) * 12 * k, h * (0.6 + rnd() * 0.4)); g.stroke();
+    }
+    g.restore();
+    const r = Math.hypot(w, h) / 2;
+    const vg = g.createRadialGradient(w / 2, h / 2, r * 0.35, w / 2, h / 2, r);
+    vg.addColorStop(0, 'rgba(0,0,0,0)');
+    vg.addColorStop(1, 'rgba(0,0,0,0.62)');
+    g.fillStyle = vg; g.fillRect(0, 0, w, h);
   }
   function clamp(v) { return v < 0 ? 0 : v > 255 ? 255 : v; }
 
@@ -189,6 +238,8 @@
   }
   function goHome() {
     clearTimeout(state.doneTimer);
+    state.run++;               // cancels a countdown in progress
+    state.busy = false;
     state.shots = [];
     state.filter = state.cfg.defaultFilter || 'original';
     state.copies = state.cfg.copies || 1;
@@ -256,6 +307,7 @@
       const st = track?.getSettings?.() || {};
       $('adminCamera').textContent = `${track?.label || 'camera'}${st.width ? ` · ${st.width}×${st.height}` : ''}`;
       video.hidden = false;
+      try { if (st.deviceId) localStorage.setItem('booth.camera', st.deviceId); } catch {}
       await listCameras(st.deviceId);
     } catch (err) {
       cameraUnavailable(err.message || String(err));
@@ -321,6 +373,8 @@
   async function captureSequence() {
     if (state.busy) return;
     state.busy = true;
+    const run = ++state.run;
+    const live = () => run === state.run;
     state.shots = [];
     const total = state.cfg.shots || 1;
     setStage('countdown');
@@ -330,13 +384,16 @@
         const el = $('countNum');
         el.textContent = n; el.classList.remove('tick'); void el.offsetWidth; el.classList.add('tick');
         await sleep(1000);
+        if (!live()) return;
       }
       flash.classList.remove('on'); void flash.offsetWidth; flash.classList.add('on');
       state.shots.push(grabFrame());
       await sleep(total > 1 ? 1000 : 450);
+      if (!live()) return;
     }
     await compose(printCanvas, state.shots);
     paintThumbs();
+    if (!live()) return;
     state.busy = false;
     setStage('review');
     if (state.cfg.autoPrint) { await sleep(1800); doPrint(); }
@@ -352,12 +409,12 @@
     const u = W / 559, Hu = H / u;
     const SERIF = '"Bodoni Moda", Didot, "Playfair Display", Georgia, serif';
     const SANS = 'Jost, Futura, "Helvetica Neue", Arial, sans-serif';
-    const INK = '#000000', PAPER = '#ffffff', BRONZE = '#7d5f33', LINE = '#b39669', GREY = '#5e5e5e';
+    const INK = '#000000', PAPER = '#ffffff', BRONZE = '#6e522b', LINE = '#b39669', GREY = '#3a3a3a';
     try {
       await Promise.all([
-        document.fonts.load(`500 ${40 * u}px "Bodoni Moda"`),
-        document.fonts.load(`italic 400 ${15 * u}px "Bodoni Moda"`),
-        document.fonts.load(`400 ${7 * u}px Jost`)
+        document.fonts.load(`600 ${40 * u}px "Bodoni Moda"`),
+        document.fonts.load(`italic 600 ${17 * u}px "Bodoni Moda"`),
+        document.fonts.load(`600 ${9 * u}px Jost`)
       ]);
     } catch {}
 
@@ -371,7 +428,7 @@
     g.strokeRect(7, 7, w - 14, h - 14);
 
     // running wordmark on all four sides
-    g.fillStyle = INK; g.font = `400 6.2px ${SERIF}`; g.letterSpacing = '1.86px';
+    g.fillStyle = INK; g.font = `600 7.2px ${SERIF}`; g.letterSpacing = '1.9px';
     g.textBaseline = 'middle'; g.textAlign = 'left';
     const word = 'THE COLLECTIVE · ';
     const ww = g.measureText(word).width;
@@ -387,7 +444,7 @@
     g.save(); g.translate(w - 18, 26); g.rotate(Math.PI / 2); band(h - 52); g.restore();
 
     // corner monograms
-    g.fillStyle = BRONZE; g.font = `italic 400 9px ${SERIF}`; g.letterSpacing = '0px'; g.textAlign = 'center';
+    g.fillStyle = BRONZE; g.font = `italic 600 10px ${SERIF}`; g.letterSpacing = '0px'; g.textAlign = 'center';
     [[18, 18], [w - 18, 18], [18, h - 18], [w - 18, h - 18]].forEach(([x, y]) => g.fillText('C', x, y + 0.5));
 
     // inner bronze hairline
@@ -396,24 +453,24 @@
 
     // header
     g.textBaseline = 'alphabetic'; g.textAlign = 'center';
-    g.fillStyle = BRONZE; g.font = `italic 400 15px ${SERIF}`;
-    g.fillText('The', w / 2, 75);
-    g.fillStyle = INK; g.font = `500 40px ${SERIF}`; g.letterSpacing = '16.8px';
-    g.fillText('COLLECTIVE', w / 2 + 8.4, 113);
+    g.fillStyle = BRONZE; g.font = `italic 600 17px ${SERIF}`;
+    g.fillText('The', w / 2, 76);
+    g.fillStyle = INK; g.font = `600 40px ${SERIF}`; g.letterSpacing = '15.2px';
+    g.fillText('COLLECTIVE', w / 2 + 7.6, 114);
     g.letterSpacing = '0px';
     g.fillStyle = LINE; g.fillRect(w / 2 - 18, 127, 36, 0.75);
 
     // footer
     const fy = h - 144;
     g.fillStyle = LINE; g.fillRect(w / 2 - 18, fy, 36, 0.75);
-    g.fillStyle = INK; g.font = `400 15px ${SERIF}`; g.letterSpacing = '0.9px';
-    g.fillText(state.cfg.eventName || state.cfg.storeName, w / 2 + 0.45, fy + 26);
+    g.fillStyle = INK; g.font = `600 18px ${SERIF}`; g.letterSpacing = '0.6px';
+    g.fillText(state.cfg.eventName || state.cfg.storeName, w / 2 + 0.3, fy + 28);
     const date = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }).toUpperCase();
-    g.fillStyle = GREY; g.font = `400 7px ${SANS}`; g.letterSpacing = '2.38px';
-    g.fillText(date, w / 2 + 1.19, fy + 44);
+    g.fillStyle = GREY; g.font = `600 9px ${SANS}`; g.letterSpacing = '2.2px';
+    g.fillText(date, w / 2 + 1.1, fy + 48);
     if (state.cfg.hashtag) {
-      g.fillStyle = BRONZE; g.font = `400 7.5px ${SANS}`; g.letterSpacing = '1.5px';
-      g.fillText(state.cfg.hashtag, w / 2 + 0.75, fy + 61);
+      g.fillStyle = BRONZE; g.font = `600 9.5px ${SANS}`; g.letterSpacing = '1.2px';
+      g.fillText(state.cfg.hashtag, w / 2 + 0.6, fy + 66);
     }
     g.letterSpacing = '0px';
 
@@ -469,7 +526,7 @@
   // ---------- touch anywhere ----------
   booth.addEventListener('click', (e) => {
     if (booth.dataset.stage !== 'attract') return;
-    if (e.target.closest('#admin, #adminBtn')) return;
+    if (e.target.closest('#admin, #adminBtn, #homeBtn')) return;
     captureSequence();
   });
 
@@ -515,6 +572,7 @@
   $('printBtn').addEventListener('click', doPrint);
   $('retakeBtn').addEventListener('click', captureSequence);
   $('againBtn').addEventListener('click', goHome);
+  $('homeBtn').addEventListener('click', goHome);
   $('retryBtn').addEventListener('click', doPrint);
   $('errorHomeBtn').addEventListener('click', goHome);
   document.querySelectorAll('.round').forEach((b) => b.addEventListener('click', () => {
@@ -527,7 +585,10 @@
   (async () => {
     renderFinishPickers();
     await loadStatus();
-    await startCamera();
+    let saved = null;
+    try { saved = localStorage.getItem('booth.camera'); } catch {}
+    await startCamera(saved || undefined);
+    if (!state.stream && saved) await startCamera();
     goHome();
   })();
 })();

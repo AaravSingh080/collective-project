@@ -5,14 +5,15 @@ Guests touch anywhere on the screen, the camera takes the shot, they pick a fini
 **A5 print (half an A4 sheet, 148 × 210 mm)** framed with The Collective branding is sent straight
 to the printer. Screen and print are pure white with the black Didone wordmark.
 
-Finishes: three signature ones made for the brand, plus six classics.
+Finishes: three signature ones made for the brand, plus six classics including Vintage.
 
 | Finish | What it does |
 | --- | --- |
 | **Gelatin** | Darkroom black and white: deep blacks, cool silver tone, fine grain, soft vignette. |
 | **Façade** | Bronze duotone from the store façades: espresso shadows, champagne highlights. |
 | **Prism** | Colour with a fine red/blue light split at the edges and a faint spectral leak, after the backlit prismatic sign. |
-| Colour, Mono, Noir, Warm, Soft, Vivid | Classic adjustments. | No dialogs, no files to click.
+| **Vintage** | Black and white on faded old paper: lifted blacks, heavy clumpy grain, dust, hairline scratches, deep vignette. |
+| Colour, Mono, Noir, Warm, Vivid | Classic adjustments. | No dialogs, no files to click.
 
 ```
 webcam ──▶ browser kiosk UI (public/) ──▶ POST /api/print ──▶ server.js ──▶ printer
@@ -30,7 +31,21 @@ wordmark, and the brand name running around every edge of the screen and the pri
 Brand copy used on the print ("India's largest luxury multi-brand retailer", `#TheCollectiveIndia`)
 can be changed in `config.json`.
 
-## Quick start
+## Run it on the booth PC (Windows)
+
+1. Install **Node.js LTS** from nodejs.org and **Google Chrome**, if they are not there already.
+2. Plug in the webcam. Set the photo printer as the **default printer** and set its paper to **A5**
+   in *Printing Preferences*.
+3. Download this repository (GitHub › Code › Download ZIP, on branch `claude/cool-fermat-h8qdyv`)
+   and unzip it anywhere, for example the Desktop.
+4. Double-click **`start-kiosk.bat`**. The first run installs the booth, lists the printers it can see,
+   and opens the booth full-screen with the camera already allowed.
+
+To leave the kiosk press **Alt + F4**, then close the minimised "Collective Booth Server" window.
+If Chrome picks the wrong camera, open staff settings (tap the wordmark 5 times) and choose it; the
+booth remembers it next time. Use **Test print** there to check the printer.
+
+## Quick start (developers)
 
 Requirements: Node.js 18+, Google Chrome (or Edge), a webcam, a printer installed in the OS.
 
@@ -62,7 +77,7 @@ npm run dev           # DRY_RUN=1: prints are saved to ./prints/ as PNG + PDF, n
 | `mirrorPreview` / `mirrorPrint` | Mirror the live view (selfie feel) and/or the printed photo. |
 | `idleResetSeconds` | Return to the start screen after inactivity. |
 | `paper` | Print size: `name` (OS media name, e.g. `A5`, `A4`, `4x6`), `widthIn`, `heightIn`, `dpi`. Default A5 at 300 dpi → 1748 × 2480 px. |
-| `defaultFilter` | Finish pre-selected on the review screen: `gelatin`, `facade`, `prism`, `original`, `mono`, `noir`, `warm`, `soft`, `vivid`. |
+| `defaultFilter` | Finish pre-selected on the review screen: `gelatin`, `facade`, `prism`, `original`, `mono`, `noir`, `warm`, `vintage`, `vivid`. |
 | `printer.name` | Exact printer name from `npm run printers`. Empty = system default. |
 | `printer.windowsPaperSize` | Windows only: override the paper-size name sent to the driver (defaults to `paper.name`). |
 | `printer.dryRun` | Save files, don't print. |
