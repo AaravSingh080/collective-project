@@ -2,6 +2,8 @@
 // Serves the kiosk UI from /public and turns captured photos into 4x6 prints.
 //
 //   POST /api/print      { image: "data:image/png;base64,...", copies?: 1 }
+//   POST /api/share      { sheet: "data:image/jpeg;base64,...", photo?, no?, place? } -> { url }
+//   GET  /p/:id          the guest's download page (opened from the QR code)
 //   GET  /api/printers   list printers the OS knows about
 //   GET  /api/status     config the kiosk needs + printer readiness
 //
@@ -15,6 +17,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
+import os from 'node:os';
+import crypto from 'node:crypto';
 import PDFDocument from 'pdfkit';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -31,7 +35,69 @@ function loadConfig() {
 }
 
 let config = loadConfig();
-fs.mkdirSync(PRINTS_DIR, { recursive: true });
+const SHARE_DIR = path.join(PRINTS_DIR, 'share');
+fs.mkdirSync(SHARE_DIR, { recursive: true });
+
+// ---------- guest downloads over the store network ----------
+
+function lanAddress() {
+  const found = [];
+  for (const list of Object.values(os.networkInterfaces())) {
+    for (const n of list || []) if (n.family === 'IPv4' && !n.internal) found.push(n.address);
+  }
+  return found.find((a) => /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(a)) || found[0] || null;
+}
+function shareBase() {
+  const fixed = config.share?.baseUrl;
+  if (fixed) return fixed.replace(/\/$/, '');
+  const ip = lanAddress();
+  return ip ? `http://${ip}:${config.port}` : null;
+}
+const keepDays = () => Math.max(1, Number(config.share?.keepDays) || 7);
+const validId = (id) => /^[A-Za-z0-9_-]{12}$/.test(id);
+const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+function cleanShares() {
+  const cutoff = Date.now() - keepDays() * 864e5;
+  for (const f of fs.readdirSync(SHARE_DIR)) {
+    const p = path.join(SHARE_DIR, f);
+    try { if (fs.statSync(p).mtimeMs < cutoff) fs.unlinkSync(p); } catch {}
+  }
+}
+cleanShares();
+setInterval(cleanShares, 60 * 60 * 1000).unref();
+
+function sharePage(id, meta) {
+  const hasPhoto = fs.existsSync(path.join(SHARE_DIR, `${id}-photo.jpg`));
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your portrait · The Collective</title>
+<link rel="stylesheet" href="/fonts.css">
+<style>
+:root{--ink:#000;--grey:#3a3a3a;--bronze:#6e522b;--hair:#d6d6d6;color-scheme:light}
+*{box-sizing:border-box}body{margin:0;background:#fff;color:var(--ink);font-family:Manrope,"Segoe UI",Arial,sans-serif;font-weight:500}
+main{max-width:520px;margin:0 auto;padding:36px 20px 48px;display:flex;flex-direction:column;align-items:center;gap:22px;text-align:center}
+.the{margin:0;font-family:"Bodoni Moda",Georgia,serif;font-style:italic;font-weight:600;font-size:20px;color:var(--bronze)}
+.mark{margin:0;font-family:"Bodoni Moda",Georgia,serif;font-weight:600;font-size:30px;letter-spacing:.34em;padding-left:.34em}
+.eyebrow{margin:0;font-size:13px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:var(--bronze)}
+img{width:100%;height:auto;display:block;box-shadow:0 16px 40px rgba(0,0,0,.14),0 0 0 1px #e4e4e4}
+.btn{display:flex;align-items:center;justify-content:center;width:100%;min-height:56px;border-radius:999px;border:1.5px solid var(--ink);text-decoration:none;font-size:15px;font-weight:800;letter-spacing:.16em;text-transform:uppercase}
+.solid{background:var(--ink);color:#fff}.line{background:#fff;color:var(--ink)}
+.actions{width:100%;display:flex;flex-direction:column;gap:12px}
+p.note{margin:0;font-size:15px;line-height:1.55;color:var(--grey)}
+footer{font-size:12px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--grey)}
+</style></head><body><main>
+<div><p class="the">The</p><p class="mark">COLLECTIVE</p></div>
+<p class="eyebrow">Your portrait${meta.no ? ` · ${esc(meta.no)}` : ''}</p>
+<img src="/p/${id}/sheet.jpg" alt="Your framed portrait from The Collective">
+<div class="actions">
+<a class="btn solid" href="/p/${id}/sheet.jpg?dl=1" download>Save framed print</a>
+${hasPhoto ? `<a class="btn line" href="/p/${id}/photo.jpg?dl=1" download>Save photo only</a>` : ''}
+</div>
+<p class="note">On iPhone you can also press and hold the picture, then choose Save to Photos. This link works for ${keepDays()} days.</p>
+<footer>The Collective${meta.place ? ` · ${esc(meta.place)}` : ''}</footer>
+</main></body></html>`;
+}
 
 // ---------- printer backends ----------
 
@@ -114,6 +180,42 @@ const app = express();
 app.use(express.json({ limit: '40mb' }));
 app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'] }));
 
+app.post('/api/share', (req, res) => {
+  const { sheet, photo, no, place } = req.body || {};
+  const isJpeg = (d) => typeof d === 'string' && d.startsWith('data:image/jpeg;base64,');
+  if (!isJpeg(sheet)) return res.status(400).json({ error: 'Expected { sheet: "data:image/jpeg;base64,..." }' });
+  const base = shareBase();
+  if (!base) return res.status(503).json({ error: 'This PC is not on a network, so phones cannot reach it.' });
+  const id = crypto.randomBytes(9).toString('base64url');
+  try {
+    fs.writeFileSync(path.join(SHARE_DIR, `${id}-sheet.jpg`), Buffer.from(sheet.split(',')[1], 'base64'));
+    if (isJpeg(photo)) fs.writeFileSync(path.join(SHARE_DIR, `${id}-photo.jpg`), Buffer.from(photo.split(',')[1], 'base64'));
+    fs.writeFileSync(path.join(SHARE_DIR, `${id}.json`), JSON.stringify({ no: String(no || '').slice(0, 40), place: String(place || '').slice(0, 80), at: new Date().toISOString() }));
+    res.json({ ok: true, id, url: `${base}/p/${id}`, keepDays: keepDays() });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/p/:id', (req, res) => {
+  const { id } = req.params;
+  if (!validId(id) || !fs.existsSync(path.join(SHARE_DIR, `${id}-sheet.jpg`))) {
+    return res.status(404).type('html').send('<!doctype html><meta name="viewport" content="width=device-width"><p style="font-family:sans-serif;padding:24px">This photo link has expired. Please ask our team at the booth.</p>');
+  }
+  let meta = {};
+  try { meta = JSON.parse(fs.readFileSync(path.join(SHARE_DIR, `${id}.json`), 'utf8')); } catch {}
+  res.type('html').send(sharePage(id, meta));
+});
+
+app.get('/p/:id/:kind.jpg', (req, res) => {
+  const { id, kind } = req.params;
+  if (!validId(id) || !['sheet', 'photo'].includes(kind)) return res.sendStatus(404);
+  const file = path.join(SHARE_DIR, `${id}-${kind}.jpg`);
+  if (!fs.existsSync(file)) return res.sendStatus(404);
+  if (req.query.dl) return res.download(file, `the-collective-portrait-${kind === 'photo' ? 'photo' : 'print'}.jpg`);
+  res.sendFile(file);
+});
+
 app.get('/api/status', async (_req, res) => {
   config = loadConfig();
   let printers = [];
@@ -133,9 +235,17 @@ app.get('/api/status', async (_req, res) => {
       hashtag: config.hashtag,
       shots: config.shots,
       countdownSeconds: config.countdownSeconds,
+      timerChoices: config.timerChoices,
       autoPrint: config.autoPrint,
       copies: config.copies,
       defaultFilter: config.defaultFilter,
+      share: {
+        mode: config.share?.mode || 'auto',
+        wifiName: config.share?.wifiName || '',
+        lanBase: shareBase(),
+        keepDays: keepDays(),
+        cloudinary: config.share?.cloudinary || {}
+      },
       mirrorPreview: config.mirrorPreview,
       mirrorPrint: config.mirrorPrint,
       idleResetSeconds: config.idleResetSeconds,
@@ -186,4 +296,5 @@ if (process.argv.includes('--list-printers')) {
 app.listen(config.port, () => {
   console.log(`THE COLLECTIVE photo booth  ->  http://localhost:${config.port}`);
   console.log(`mode: ${config.printer.dryRun ? 'DRY RUN (files saved to /prints, nothing printed)' : 'PRINT'}  printer: ${config.printer.name || '(system default)'}`);
+  console.log(`guest downloads: ${shareBase() || 'off (no network)'}  ·  kept ${keepDays()} days`);
 });

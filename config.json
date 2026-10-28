@@ -21,5 +21,20 @@
     "windowsPaperSize": "",
     "dryRun": false
   },
-  "defaultFilter": "original"
+  "defaultFilter": "original",
+  "timerChoices": [
+    3,
+    5,
+    10
+  ],
+  "share": {
+    "mode": "auto",
+    "wifiName": "",
+    "baseUrl": "",
+    "keepDays": 7,
+    "cloudinary": {
+      "cloudName": "",
+      "uploadPreset": ""
+    }
+  }
 }

@@ -41,12 +41,16 @@
         <div class="copy-attract">
           <p class="eyebrow">Step in · Look up · Keep the moment</p>
           <h1 class="display">A portrait<br>to keep.</h1>
-          <p class="lede" id="attractLede">Touch anywhere on the screen. Three seconds later your portrait prints on A5, framed by The Collective.</p>
+          <p class="lede" id="attractLede">Choose a timer, then touch anywhere on the screen. When the count ends, your portrait prints on A5, framed by The Collective.</p>
           <ol class="steps">
             <li><span class="step-n">1</span><span>Touch the screen</span></li>
             <li><span class="step-n">2</span><span>Hold your pose</span></li>
             <li><span class="step-n">3</span><span>Collect your print</span></li>
           </ol>
+          <div class="timer" role="radiogroup" aria-label="Countdown timer">
+            <span class="label">Timer</span>
+            <div class="timer-opts" id="timerOpts"></div>
+          </div>
         </div>
         <div class="copy-countdown">
           <p class="eyebrow" id="shotLabel">Eyes to the lens</p>
@@ -112,6 +116,13 @@
         <p class="eyebrow" id="doneNo">Printed</p>
         <h2 class="display display-md">Collect your portrait below.</h2>
         <p class="lede" id="thanks">Thank you for visiting The Collective, Jalandhar.</p>
+        <div class="qr" id="qrBlock" hidden>
+          <canvas id="qrCanvas" width="400" height="400" aria-label="QR code to download your portrait"></canvas>
+          <div class="qr-text">
+            <p class="qr-title">Scan to save your portrait</p>
+            <p class="qr-note" id="qrNote">Point your phone camera at the code.</p>
+          </div>
+        </div>
         <button id="againBtn" class="btn btn-line" type="button">Take another</button>
       </div>
     </section>
@@ -144,6 +155,14 @@
     <label class="field"><span>Shots per print</span>
       <select id="shotsSelect"><option value="1">1 · single portrait</option><option value="3">3 · strip</option></select></label>
     <label class="field check"><input type="checkbox" id="mirrorChk"> <span>Mirror preview</span></label>
+    <label class="field"><span>Default timer</span>
+      <select id="timerSelect"><option value="3">3 seconds</option><option value="5">5 seconds</option><option value="10">10 seconds</option></select></label>
+    <fieldset class="field-group">
+      <legend>Photo download QR</legend>
+      <p class="admin-note" id="shareStatus">—</p>
+      <label class="field"><span>Cloudinary cloud name</span><input type="text" id="cloudName" autocomplete="off" spellcheck="false"></label>
+      <label class="field"><span>Unsigned upload preset</span><input type="text" id="cloudPreset" autocomplete="off" spellcheck="false"></label>
+    </fieldset>
     <label class="field"><span>No camera? Use a photo</span><input type="file" id="uploadInput" accept="image/*"></label>
     <div class="admin-row">
       <button id="testPrintBtn" class="btn-sm" type="button">Test print</button>
@@ -156,6 +175,7 @@
 <!-- filled only while printing from the browser (no print server) -->
 <div id="printSheet" class="print-sheet" aria-hidden="true"><img id="printImg" alt=""></div>
 
+<script src="vendor/qrcode.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

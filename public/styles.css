@@ -171,11 +171,26 @@ button { font: inherit; color: inherit; cursor: pointer; }
   font-family: var(--display); font-weight: 600; font-size: 20px; line-height: 1; padding-bottom: 2px;
 }
 
+/* countdown timer choice on the welcome screen */
+.timer { display: flex; align-items: center; gap: 18px; margin-top: 4px; }
+.timer-opts { display: flex; gap: 10px; }
+.timer-opt {
+  min-width: 76px; height: 48px; padding: 0 18px; border-radius: 999px; border: 1.5px solid var(--hair); background: var(--ground);
+  font-size: 16px; font-weight: 800; letter-spacing: .06em; font-variant-numeric: tabular-nums;
+}
+.timer-opt[aria-checked="true"] { background: var(--ink); border-color: var(--ink); color: var(--ground); }
+.timer-opt:active { transform: scale(.97); }
+
 /* printed */
-.done { position: absolute; top: 250px; left: 240px; right: 240px; height: 680px; align-items: center; justify-content: center; gap: 110px; }
-.done-print { width: 400px; height: auto; display: block; box-shadow: 0 30px 70px rgba(0,0,0,.14), 0 0 0 1px #e4e4e4; animation: settle .9s cubic-bezier(.2,.7,.2,1) both; }
+.done { position: absolute; top: 240px; left: 220px; right: 220px; height: 720px; align-items: center; justify-content: center; gap: 110px; }
+.done-print { width: 420px; height: auto; display: block; box-shadow: 0 30px 70px rgba(0,0,0,.14), 0 0 0 1px #e4e4e4; animation: settle .9s cubic-bezier(.2,.7,.2,1) both; }
 @keyframes settle { from { transform: translateY(-40px) rotate(-2deg); opacity: 0; } }
 .done-copy { max-width: 760px; display: flex; flex-direction: column; gap: 24px; }
+.qr { display: flex; align-items: center; gap: 26px; padding: 18px 22px 18px 18px; border: 1px solid var(--hair); align-self: flex-start; }
+.qr canvas { width: 168px; height: 168px; display: block; image-rendering: pixelated; }
+.qr-text { display: flex; flex-direction: column; gap: 8px; max-width: 300px; }
+.qr-title { margin: 0; font-family: var(--display); font-weight: 600; font-size: 30px; line-height: 1.1; }
+.qr-note { margin: 0; font-size: 16px; font-weight: 600; line-height: 1.5; color: var(--grey); }
 .done-copy .btn { align-self: flex-start; margin-top: 14px; }
 
 /* browser printing: only the sheet prints */
@@ -201,7 +216,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 /* ---- staff settings ---- */
 .admin {
-  position: fixed; z-index: 20; left: 56px; bottom: 56px; width: min(380px, calc(100vw - 32px));
+  position: fixed; z-index: 20; left: 56px; bottom: 56px; width: min(380px, calc(100vw - 32px)); max-height: calc(100vh - 112px); overflow-y: auto;
   background: var(--ground); border: 1px solid var(--hair); border-radius: 12px; padding: 18px;
   display: flex; flex-direction: column; gap: 12px; font-size: 13px; font-weight: 400;
   box-shadow: 0 24px 60px rgba(0,0,0,.14); -webkit-user-select: text; user-select: text;
@@ -212,7 +227,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .admin-info dd { margin: 0; overflow-wrap: anywhere; }
 .field { display: flex; flex-direction: column; gap: 4px; }
 .field > span { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--grey); }
-.field select { background: var(--ground); border: 1px solid var(--hair); border-radius: 8px; padding: 8px; font: inherit; }
+.field select, .field input[type="text"] { background: var(--ground); border: 1px solid var(--hair); border-radius: 8px; padding: 8px; font: inherit; }
+.field-group { margin: 0; padding: 10px 12px 12px; border: 1px solid var(--hair); border-radius: 8px; display: flex; flex-direction: column; gap: 10px; }
+.field-group legend { padding: 0 4px; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--grey); }
 .field.check { flex-direction: row; align-items: center; gap: 8px; }
 .admin-row { display: flex; gap: 10px; flex-wrap: wrap; }
 .btn-sm { padding: 8px 14px; border-radius: 999px; border: 1px solid var(--ink); background: var(--ground); font-size: 12px; font-weight: 500; letter-spacing: .12em; text-transform: uppercase; }

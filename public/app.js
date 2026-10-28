@@ -14,7 +14,8 @@
   const state = {
     cfg: {
       storeName: 'Jalandhar, Punjab', eventName: '', hashtag: '#TheCollectiveIndia',
-      shots: 1, countdownSeconds: 3, autoPrint: false, copies: 1, defaultFilter: 'original',
+      shots: 1, countdownSeconds: 3, timerChoices: [3, 5, 10], autoPrint: false, copies: 1, defaultFilter: 'original',
+      share: { mode: 'auto', lanBase: null, keepDays: 7, wifiName: '', cloudinary: {} },
       mirrorPreview: true, mirrorPrint: false, idleResetSeconds: 45,
       paper: { name: 'A5', widthIn: 5.83, heightIn: 8.27, dpi: 300 }
     },
@@ -23,6 +24,7 @@
     uploaded: null,
     shots: [],
     filter: 'original',
+    timer: 3,
     copies: 1,
     busy: false,
     idleTimer: null,
@@ -235,6 +237,100 @@
     armIdle('review');
   }
 
+  // ---------- countdown timer ----------
+  function defaultTimer() {
+    let t = null;
+    try { t = Number(localStorage.getItem('booth.timer')); } catch {}
+    return (state.cfg.timerChoices || [3, 5, 10]).includes(t) ? t : (state.cfg.countdownSeconds || 3);
+  }
+  function renderTimer() {
+    const box = $('timerOpts'); box.innerHTML = '';
+    (state.cfg.timerChoices || [3, 5, 10]).forEach((sec) => {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'timer-opt'; b.textContent = `${sec} s`;
+      b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', String(sec === state.timer));
+      b.setAttribute('aria-label', `${sec} second timer`);
+      b.dataset.sec = String(sec);
+      b.addEventListener('click', () => {
+        state.timer = sec;
+        box.querySelectorAll('.timer-opt').forEach((o) => o.setAttribute('aria-checked', String(o.dataset.sec === String(sec))));
+      });
+      box.appendChild(b);
+    });
+  }
+
+  // ---------- photo download QR ----------
+  // Cloud (Cloudinary unsigned upload) works on mobile data and without the server.
+  // Otherwise the server keeps the photo and phones on the same Wi-Fi open it.
+  function cloudCfg() {
+    const c = state.cfg.share?.cloudinary || {};
+    let name = c.cloudName || '', preset = c.uploadPreset || '';
+    try {
+      name = localStorage.getItem('booth.cloudName') || name;
+      preset = localStorage.getItem('booth.cloudPreset') || preset;
+    } catch {}
+    return name && preset ? { name: name.trim(), preset: preset.trim() } : null;
+  }
+  function shareRoute() {
+    const mode = state.cfg.share?.mode || 'auto';
+    if (mode === 'off') return null;
+    if (mode !== 'lan' && cloudCfg()) return 'cloud';
+    if (mode !== 'cloud' && state.server && state.cfg.share?.lanBase) return 'lan';
+    return null;
+  }
+  function describeShare() {
+    const r = shareRoute();
+    $('shareStatus').textContent = r === 'cloud' ? `On · uploads to Cloudinary (${cloudCfg().name})`
+      : r === 'lan' ? `On · store Wi-Fi via ${state.cfg.share.lanBase}`
+      : state.server ? 'Off · this PC is not on a network' : 'Off · add a Cloudinary account below, or run the full version';
+  }
+  const toBlob = (c, q) => new Promise((res) => c.toBlob(res, 'image/jpeg', q));
+  async function makeShareLink(no) {
+    const route = shareRoute();
+    if (!route) return null;
+    if (route === 'cloud') {
+      const { name, preset } = cloudCfg();
+      const fd = new FormData();
+      fd.append('file', await toBlob(printCanvas, 0.9), 'portrait.jpg');
+      fd.append('upload_preset', preset);
+      const r = await fetch(`https://api.cloudinary.com/v1_1/${encodeURIComponent(name)}/image/upload`, { method: 'POST', body: fd });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.secure_url) throw new Error(j.error?.message || `upload failed (${r.status})`);
+      return { url: j.secure_url, note: 'Opens your portrait on your phone. Press and hold it to save.' };
+    }
+    let photo = null;
+    if (state.shots.length === 1) {
+      const src = state.shots[0], iw = src.videoWidth || src.width, ih = src.videoHeight || src.height;
+      const k = Math.min(1, 1600 / Math.max(iw, ih));
+      photo = finished(src, iw * k, ih * k, state.filter).toDataURL('image/jpeg', 0.9);
+    }
+    const r = await fetch('/api/share', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sheet: printCanvas.toDataURL('image/jpeg', 0.9), photo, no, place: state.cfg.eventName || state.cfg.storeName })
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.url) throw new Error(j.error || `share failed (${r.status})`);
+    const wifi = state.cfg.share?.wifiName;
+    return {
+      url: j.url,
+      note: `${wifi ? `Join the Wi-Fi \u201c${wifi}\u201d first. ` : 'Your phone must be on the store Wi-Fi. '}The link works for ${j.keepDays} days.`
+    };
+  }
+  function drawQR(text) {
+    const qr = qrcode(0, 'M');
+    qr.addData(text); qr.make();
+    const n = qr.getModuleCount(), quiet = 3, cv = $('qrCanvas');
+    const cell = Math.floor(cv.width / (n + quiet * 2)), size = cell * (n + quiet * 2);
+    cv.width = cv.height = size;
+    const g = cv.getContext('2d');
+    g.fillStyle = '#ffffff'; g.fillRect(0, 0, size, size);
+    g.fillStyle = '#000000';
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
+      if (qr.isDark(r, c)) g.fillRect((c + quiet) * cell, (r + quiet) * cell, cell, cell);
+    }
+    cv.dataset.url = text;
+  }
+
   // ---------- stages ----------
   function setStage(name) {
     booth.dataset.stage = name;
@@ -252,6 +348,9 @@
     state.shots = [];
     state.filter = state.cfg.defaultFilter || 'original';
     state.copies = state.cfg.copies || 1;
+    state.timer = defaultTimer();
+    renderTimer();
+    $('qrBlock').hidden = true;
     updateCopies();
     renderFinishPickers();
     still.hidden = true;
@@ -288,10 +387,14 @@
     $('thanks').textContent = city ? `Thank you for visiting The Collective, ${city}.` : 'Thank you for visiting The Collective.';
     const paper = c.paper.name || `${c.paper.widthIn} × ${c.paper.heightIn} in`;
     $('attractLede').textContent = c.shots > 1
-      ? `Touch anywhere on the screen. Three shots, one ${paper} print, framed by The Collective.`
-      : `Touch anywhere on the screen. Three seconds later your portrait prints on ${paper}, framed by The Collective.`;
+      ? `Choose a timer, then touch anywhere on the screen. Three shots, one ${paper} print, framed by The Collective.`
+      : `Choose a timer, then touch anywhere on the screen. When the count ends, your portrait prints on ${paper}, framed by The Collective.`;
     $('previewCaption').textContent = c.paper.name === 'A5' ? 'Your print · A5 · 148 × 210 mm' : `Your print · ${paper}`;
     $('shotsSelect').value = String(c.shots);
+    $('timerSelect').value = String(defaultTimer());
+    const cc = cloudCfg();
+    $('cloudName').value = cc?.name || ''; $('cloudPreset').value = cc?.preset || '';
+    describeShare();
     $('mirrorChk').checked = !!c.mirrorPreview;
     booth.classList.toggle('mirror', !!c.mirrorPreview);
     const W = Math.round(c.paper.widthIn * c.paper.dpi), H = Math.round(c.paper.heightIn * c.paper.dpi);
@@ -390,7 +493,7 @@
     setStage('countdown');
     for (let i = 0; i < total; i++) {
       $('shotLabel').textContent = total > 1 ? `Shot ${i + 1} of ${total} · Eyes to the lens` : 'Eyes to the lens';
-      for (let n = state.cfg.countdownSeconds; n >= 1; n--) {
+      for (let n = state.timer; n >= 1; n--) {
         const el = $('countNum');
         el.textContent = n; el.classList.remove('tick'); void el.offsetWidth; el.classList.add('tick');
         await sleep(1000);
@@ -526,6 +629,11 @@
     setStage('printing');
     const started = Date.now();
     const no = lastNo() + 1;
+    $('qrBlock').hidden = true;
+    const sharing = makeShareLink(fmtNo(no)).catch((e) => {
+      $('adminError').textContent = `QR code not made: ${e.message || e}`;
+      return null;
+    });
     try {
       const dataUrl = printCanvas.toDataURL('image/png');
       await sleep(400); // let the printing screen paint first
@@ -544,10 +652,16 @@
       saveNo(no);
       $('doneImg').src = printCanvas.toDataURL('image/jpeg', 0.85);
       $('doneNo').textContent = `Printed · Portrait ${fmtNo(no)}`;
+      const link = await Promise.race([sharing, sleep(10000).then(() => null)]);
+      if (link) {
+        drawQR(link.url);
+        $('qrNote').textContent = link.note;
+        $('qrBlock').hidden = false;
+      }
       await sleep(Math.max(0, 1800 - (Date.now() - started)));
       state.busy = false;
       setStage('done');
-      state.doneTimer = setTimeout(() => { if (booth.dataset.stage === 'done') goHome(); }, 9000);
+      state.doneTimer = setTimeout(() => { if (booth.dataset.stage === 'done') goHome(); }, link ? 45000 : 9000);
     } catch (err) {
       state.busy = false;
       $('adminError').textContent = `Last print failed: ${err.message || err}`;
@@ -558,7 +672,7 @@
   // ---------- touch anywhere ----------
   booth.addEventListener('click', (e) => {
     if (booth.dataset.stage !== 'attract') return;
-    if (e.target.closest('#admin, #adminBtn, #homeBtn')) return;
+    if (e.target.closest('#admin, #adminBtn, #homeBtn, .timer')) return;
     captureSequence();
   });
 
@@ -580,6 +694,19 @@
   $('cameraSelect').addEventListener('change', (e) => startCamera(e.target.value));
   $('shotsSelect').addEventListener('change', (e) => { state.cfg.shots = Number(e.target.value); applyConfig(); });
   $('mirrorChk').addEventListener('change', (e) => { state.cfg.mirrorPreview = e.target.checked; booth.classList.toggle('mirror', e.target.checked); });
+  $('timerSelect').addEventListener('change', (e) => {
+    try { localStorage.setItem('booth.timer', e.target.value); } catch {}
+    state.timer = defaultTimer(); renderTimer();
+  });
+  const saveCloud = () => {
+    try {
+      localStorage.setItem('booth.cloudName', $('cloudName').value.trim());
+      localStorage.setItem('booth.cloudPreset', $('cloudPreset').value.trim());
+    } catch {}
+    describeShare();
+  };
+  $('cloudName').addEventListener('change', saveCloud);
+  $('cloudPreset').addEventListener('change', saveCloud);
   $('fullscreenBtn').addEventListener('click', () => document.documentElement.requestFullscreen?.().catch(() => {}));
   $('uploadInput').addEventListener('change', (e) => {
     const file = e.target.files?.[0]; if (!file) return;

@@ -81,6 +81,31 @@ To try it without a printer:
 npm run dev           # DRY_RUN=1: prints are saved to ./prints/ as PNG + PDF, nothing is sent
 ```
 
+## Photo download QR code
+
+After printing, the screen shows a QR code. Guests scan it with their phone camera and get a page
+where they can save the framed print or the photo on its own. There are two ways to make it work:
+
+**1. Store Wi-Fi (full version, nothing to sign up for).** The booth PC keeps the photos and serves
+the download page itself. Phones must be on the same Wi-Fi as the booth PC.
+* The first time `start-kiosk.bat` runs, Windows asks whether Node.js may use the network. Tick
+  **Private networks** and click **Allow**, or phones cannot reach the PC.
+* Set `share.wifiName` in `config.json` to show "Join the Wi-Fi "…" first" under the code.
+* Photos are deleted automatically after `share.keepDays` days (default 7).
+* If the store's guest Wi-Fi blocks devices from seeing each other, use option 2.
+
+**2. Cloudinary (works on mobile data, and in the no-install version).**
+1. Create a free account at cloudinary.com and note the **cloud name** on the dashboard.
+2. Settings › Upload › Upload presets › Add upload preset. Set **Signing mode: Unsigned**,
+   optionally a folder such as `collective-booth`, and save. Note the preset name.
+3. On the booth, open staff settings (tap the wordmark 5 times) and enter both under
+   **Photo download QR**. Or put them in `config.json` under `share.cloudinary`.
+
+With Cloudinary the QR code opens the framed print directly. Photos stay in your Cloudinary account
+until you delete them there. Anyone with the link can see that photo, so treat links as public.
+
+If neither is set up, the QR code is simply not shown and printing works as before.
+
 ## Configuration (`config.json`)
 
 | Key | What it does |
@@ -88,7 +113,13 @@ npm run dev           # DRY_RUN=1: prints are saved to ./prints/ as PNG + PDF, n
 | `storeName`, `eventName` | Shown on screen and printed in the footer (`eventName` wins when set). |
 | `hashtag` | Printed in bronze under the date. |
 | `shots` | `1` = single portrait, `3` = three-shot strip on one sheet. |
-| `countdownSeconds` | Countdown before each shot. |
+| `countdownSeconds` | Default timer before each shot (3, 5 or 10). Guests can change it on the welcome screen; staff can change the default in staff settings. |
+| `timerChoices` | Timer buttons shown on the welcome screen. Default `[3, 5, 10]`. |
+| `share.mode` | Photo download QR: `auto` (Cloudinary if set up, else store Wi-Fi), `lan`, `cloud` or `off`. |
+| `share.wifiName` | Store Wi-Fi name shown under the QR code. |
+| `share.baseUrl` | Fixed address phones should use, e.g. `http://192.168.1.20:3000`. Empty = detected automatically. |
+| `share.keepDays` | Days before shared photos are deleted from the PC. |
+| `share.cloudinary` | `cloudName` and `uploadPreset` for cloud links. |
 | `autoPrint` | `true` skips the review screen and prints immediately. |
 | `copies` | Default copies per print (guest can adjust 1–5 on the review screen). |
 | `mirrorPreview` / `mirrorPrint` | Mirror the live view (selfie feel) and/or the printed photo. |
@@ -112,7 +143,9 @@ Environment overrides: `PORT`, `PRINTER`, `DRY_RUN=1`.
 
 ## In the booth
 
-* Touch anywhere on the welcome screen (or press Space). Countdown → flash → review.
+* Pick a 3, 5 or 10 second timer, then touch anywhere on the welcome screen (or press Space).
+  Countdown, flash, review.
+* After printing, guests scan the QR code to save their portrait on their phone.
 * Pick a finish on the review screen; the A5 preview updates instantly.
 * **Print** (Enter) sends it; **Retake** goes again; the screen resets itself after the print.
 * Staff settings: tap the wordmark 5 times or press **Ctrl + A**. It shows printer and camera status,
@@ -128,6 +161,8 @@ kiosk/booth.html      the whole booth in one file (no-install version, built fro
 kiosk/Start Booth.bat no-install launcher: Chrome kiosk + silent printing
 public/index.html     kiosk markup
 public/fonts/         Bodoni Moda and Manrope (SIL Open Font License)
+public/vendor/        qrcode-generator by Kazuhiko Arase (MIT)
+prints/share/         photos guests can download over Wi-Fi, deleted after keepDays
 public/styles.css     design tokens and layout
 public/app.js         camera, countdown, print composition, printing
 scripts/build-single-file.mjs   rebuilds kiosk/booth.html after any change in public/

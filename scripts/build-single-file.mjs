@@ -12,10 +12,17 @@ const read = (f) => fs.readFileSync(path.join(pub, f), 'utf8');
 const fonts = read('fonts.css').replace(/url\(fonts\/([^)]+)\)/g, (_, file) =>
   `url(data:font/woff2;base64,${fs.readFileSync(path.join(pub, 'fonts', file)).toString('base64')})`);
 
-let html = read('index.html')
-  .replace('<link rel="stylesheet" href="fonts.css">', `<style>\n${fonts}\n</style>`)
-  .replace('<link rel="stylesheet" href="styles.css">', `<style>\n${read('styles.css')}\n</style>`)
-  .replace('<script src="app.js"></script>', `<script>\n${read('app.js')}\n</script>`);
+// Function replacements: file contents go in verbatim ($' or $& in a library would otherwise expand).
+const inline = (tag, content) => (doc) => doc.replace(tag, () => content);
+let html = [
+  inline('<link rel="stylesheet" href="fonts.css">', `<style>\n${fonts}\n</style>`),
+  inline('<link rel="stylesheet" href="styles.css">', `<style>\n${read('styles.css')}\n</style>`),
+  inline('<script src="vendor/qrcode.js"></script>', `<script>\n${read('vendor/qrcode.js')}\n</script>`),
+  inline('<script src="app.js"></script>', `<script>\n${read('app.js')}\n</script>`)
+].reduce((doc, step) => step(doc), read('index.html'));
+for (const ref of ['fonts.css', 'styles.css', 'vendor/qrcode.js', 'app.js']) {
+  if (html.includes(`"${ref}"`)) throw new Error(`${ref} was not inlined`);
+}
 
 for (const dir of ['kiosk', 'dist']) fs.mkdirSync(path.join(root, dir), { recursive: true });
 fs.writeFileSync(path.join(root, 'kiosk', 'booth.html'), html);
