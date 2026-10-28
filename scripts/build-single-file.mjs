@@ -18,9 +18,10 @@ let html = [
   inline('<link rel="stylesheet" href="fonts.css">', `<style>\n${fonts}\n</style>`),
   inline('<link rel="stylesheet" href="styles.css">', `<style>\n${read('styles.css')}\n</style>`),
   inline('<script src="vendor/qrcode.js"></script>', `<script>\n${read('vendor/qrcode.js')}\n</script>`),
+  inline('<script src="vendor/gifenc.js"></script>', `<script>\n${read('vendor/gifenc.js')}\n</script>`),
   inline('<script src="app.js"></script>', `<script>\n${read('app.js')}\n</script>`)
 ].reduce((doc, step) => step(doc), read('index.html'));
-for (const ref of ['fonts.css', 'styles.css', 'vendor/qrcode.js', 'app.js']) {
+for (const ref of ['fonts.css', 'styles.css', 'vendor/qrcode.js', 'vendor/gifenc.js', 'app.js']) {
   if (html.includes(`"${ref}"`)) throw new Error(`${ref} was not inlined`);
 }
 

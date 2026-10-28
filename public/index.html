@@ -44,7 +44,7 @@
           <p class="lede" id="attractLede">Choose a timer, then touch anywhere on the screen. When the count ends, your portrait prints on A5, framed by The Collective.</p>
           <ol class="steps">
             <li><span class="step-n">1</span><span>Touch the screen</span></li>
-            <li><span class="step-n">2</span><span>Hold your pose</span></li>
+            <li><span class="step-n">2</span><span id="step2">Hold your pose</span></li>
             <li><span class="step-n">3</span><span>Collect your print</span></li>
           </ol>
           <div class="timer" role="radiogroup" aria-label="Countdown timer">
@@ -63,9 +63,14 @@
             <video id="video" autoplay playsinline muted></video>
             <canvas id="stillCanvas" class="still" hidden></canvas>
             <div id="flash" class="flash"></div>
+            <div id="recBar" class="rec-bar"></div>
           </div>
         </div>
-        <figcaption>What you see is what prints</figcaption>
+        <div class="mode" id="modeBox" role="radiogroup" aria-label="Photo or boomerang" hidden>
+          <button type="button" class="mode-opt" data-mode="photo" role="radio" aria-checked="true">Photo</button>
+          <button type="button" class="mode-opt" data-mode="boomerang" role="radio" aria-checked="false">Boomerang</button>
+        </div>
+        <figcaption id="cameraCaption">What you see is what prints</figcaption>
       </figure>
     </section>
 
@@ -77,7 +82,10 @@
     <!-- REVIEW -->
     <section class="review">
       <figure class="print-preview">
-        <canvas id="printCanvas" width="1749" height="2481"></canvas>
+        <div class="preview-stage">
+          <canvas id="loopCanvas" class="loop" width="540" height="675" aria-label="Your boomerang, playing"></canvas>
+          <canvas id="printCanvas" width="1749" height="2481"></canvas>
+        </div>
         <figcaption id="previewCaption">Your print · A5 · 148 × 210 mm</figcaption>
       </figure>
       <div class="finish-panel">
@@ -119,7 +127,7 @@
         <div class="qr" id="qrBlock" hidden>
           <canvas id="qrCanvas" width="400" height="400" aria-label="QR code to download your portrait"></canvas>
           <div class="qr-text">
-            <p class="qr-title">Scan to save your portrait</p>
+            <p class="qr-title" id="qrTitle">Scan to save your portrait</p>
             <p class="qr-note" id="qrNote">Point your phone camera at the code.</p>
           </div>
         </div>
@@ -176,6 +184,7 @@
 <div id="printSheet" class="print-sheet" aria-hidden="true"><img id="printImg" alt=""></div>
 
 <script src="vendor/qrcode.js"></script>
+<script src="vendor/gifenc.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

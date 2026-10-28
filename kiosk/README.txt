@@ -10,6 +10,8 @@ The booth opens full screen. Guests touch the screen, pick a finish and
 the A5 print comes out of the default printer with no dialog.
 
 Guests pick a 3, 5 or 10 second timer, then touch anywhere to start.
+Once the QR code is set up, a Photo / Boomerang switch appears under the
+camera. Boomerangs go to the guest's phone; an A5 portrait still prints.
 
 Staff settings: tap THE COLLECTIVE wordmark 5 times (or Ctrl + A).
   Choose the camera, the default timer, run a test print, or load a

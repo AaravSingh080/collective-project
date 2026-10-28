@@ -2,7 +2,7 @@
 // Serves the kiosk UI from /public and turns captured photos into 4x6 prints.
 //
 //   POST /api/print      { image: "data:image/png;base64,...", copies?: 1 }
-//   POST /api/share      { sheet: "data:image/jpeg;base64,...", photo?, no?, place? } -> { url }
+//   POST /api/share      { sheet: "data:image/jpeg;base64,...", photo?, gif?, no?, place? } -> { url }
 //   GET  /p/:id          the guest's download page (opened from the QR code)
 //   GET  /api/printers   list printers the OS knows about
 //   GET  /api/status     config the kiosk needs + printer readiness
@@ -69,6 +69,7 @@ setInterval(cleanShares, 60 * 60 * 1000).unref();
 
 function sharePage(id, meta) {
   const hasPhoto = fs.existsSync(path.join(SHARE_DIR, `${id}-photo.jpg`));
+  const hasGif = fs.existsSync(path.join(SHARE_DIR, `${id}-boomerang.gif`));
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Your portrait · The Collective</title>
@@ -88,10 +89,13 @@ p.note{margin:0;font-size:15px;line-height:1.55;color:var(--grey)}
 footer{font-size:12px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--grey)}
 </style></head><body><main>
 <div><p class="the">The</p><p class="mark">COLLECTIVE</p></div>
-<p class="eyebrow">Your portrait${meta.no ? ` · ${esc(meta.no)}` : ''}</p>
-<img src="/p/${id}/sheet.jpg" alt="Your framed portrait from The Collective">
+<p class="eyebrow">Your ${hasGif ? 'boomerang' : 'portrait'}${meta.no ? ` · ${esc(meta.no)}` : ''}</p>
+${hasGif
+    ? `<img src="/p/${id}/boomerang.gif" alt="Your boomerang from The Collective">`
+    : `<img src="/p/${id}/sheet.jpg" alt="Your framed portrait from The Collective">`}
 <div class="actions">
-<a class="btn solid" href="/p/${id}/sheet.jpg?dl=1" download>Save framed print</a>
+${hasGif ? `<a class="btn solid" href="/p/${id}/boomerang.gif?dl=1" download>Save boomerang</a>` : ''}
+<a class="btn ${hasGif ? 'line' : 'solid'}" href="/p/${id}/sheet.jpg?dl=1" download>Save framed print</a>
 ${hasPhoto ? `<a class="btn line" href="/p/${id}/photo.jpg?dl=1" download>Save photo only</a>` : ''}
 </div>
 <p class="note">On iPhone you can also press and hold the picture, then choose Save to Photos. This link works for ${keepDays()} days.</p>
@@ -177,11 +181,11 @@ function pngToPdf(pngPath, pdfPath) {
 // ---------- web app ----------
 
 const app = express();
-app.use(express.json({ limit: '40mb' }));
+app.use(express.json({ limit: '60mb' }));
 app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'] }));
 
 app.post('/api/share', (req, res) => {
-  const { sheet, photo, no, place } = req.body || {};
+  const { sheet, photo, gif, no, place } = req.body || {};
   const isJpeg = (d) => typeof d === 'string' && d.startsWith('data:image/jpeg;base64,');
   if (!isJpeg(sheet)) return res.status(400).json({ error: 'Expected { sheet: "data:image/jpeg;base64,..." }' });
   const base = shareBase();
@@ -190,6 +194,9 @@ app.post('/api/share', (req, res) => {
   try {
     fs.writeFileSync(path.join(SHARE_DIR, `${id}-sheet.jpg`), Buffer.from(sheet.split(',')[1], 'base64'));
     if (isJpeg(photo)) fs.writeFileSync(path.join(SHARE_DIR, `${id}-photo.jpg`), Buffer.from(photo.split(',')[1], 'base64'));
+    if (typeof gif === 'string' && gif.startsWith('data:image/gif;base64,')) {
+      fs.writeFileSync(path.join(SHARE_DIR, `${id}-boomerang.gif`), Buffer.from(gif.split(',')[1], 'base64'));
+    }
     fs.writeFileSync(path.join(SHARE_DIR, `${id}.json`), JSON.stringify({ no: String(no || '').slice(0, 40), place: String(place || '').slice(0, 80), at: new Date().toISOString() }));
     res.json({ ok: true, id, url: `${base}/p/${id}`, keepDays: keepDays() });
   } catch (e) {
@@ -205,6 +212,15 @@ app.get('/p/:id', (req, res) => {
   let meta = {};
   try { meta = JSON.parse(fs.readFileSync(path.join(SHARE_DIR, `${id}.json`), 'utf8')); } catch {}
   res.type('html').send(sharePage(id, meta));
+});
+
+app.get('/p/:id/boomerang.gif', (req, res) => {
+  const { id } = req.params;
+  if (!validId(id)) return res.sendStatus(404);
+  const file = path.join(SHARE_DIR, `${id}-boomerang.gif`);
+  if (!fs.existsSync(file)) return res.sendStatus(404);
+  if (req.query.dl) return res.download(file, 'the-collective-boomerang.gif');
+  res.sendFile(file);
 });
 
 app.get('/p/:id/:kind.jpg', (req, res) => {
@@ -236,6 +252,7 @@ app.get('/api/status', async (_req, res) => {
       shots: config.shots,
       countdownSeconds: config.countdownSeconds,
       timerChoices: config.timerChoices,
+      boomerang: config.boomerang !== false,
       autoPrint: config.autoPrint,
       copies: config.copies,
       defaultFilter: config.defaultFilter,

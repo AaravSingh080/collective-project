@@ -25,6 +25,11 @@
     shots: [],
     filter: 'original',
     timer: 3,
+    mode: 'photo',          // or 'boomerang'
+    frames: [],             // boomerang burst, square canvases
+    rendered: [],           // the burst with the current finish applied
+    loopTimer: null,
+    gifBase: null,
     copies: 1,
     busy: false,
     idleTimer: null,
@@ -234,6 +239,7 @@
     document.querySelectorAll('#signature button, #classic button')
       .forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.id === id)));
     if (state.shots.length) await compose(printCanvas, state.shots);
+    if (state.mode === 'boomerang') playLoop();
     armIdle('review');
   }
 
@@ -288,15 +294,17 @@
   async function makeShareLink(no) {
     const route = shareRoute();
     if (!route) return null;
+    const gif = state.mode === 'boomerang' && state.rendered.length ? await buildGif() : null;
     if (route === 'cloud') {
       const { name, preset } = cloudCfg();
       const fd = new FormData();
-      fd.append('file', await toBlob(printCanvas, 0.9), 'portrait.jpg');
+      if (gif) fd.append('file', gif, 'boomerang.gif');
+      else fd.append('file', await toBlob(printCanvas, 0.9), 'portrait.jpg');
       fd.append('upload_preset', preset);
       const r = await fetch(`https://api.cloudinary.com/v1_1/${encodeURIComponent(name)}/image/upload`, { method: 'POST', body: fd });
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.secure_url) throw new Error(j.error?.message || `upload failed (${r.status})`);
-      return { url: j.secure_url, note: 'Opens your portrait on your phone. Press and hold it to save.' };
+      return { url: j.secure_url, note: `Opens your ${gif ? 'boomerang' : 'portrait'} on your phone. Press and hold it to save.` };
     }
     let photo = null;
     if (state.shots.length === 1) {
@@ -306,7 +314,11 @@
     }
     const r = await fetch('/api/share', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sheet: printCanvas.toDataURL('image/jpeg', 0.9), photo, no, place: state.cfg.eventName || state.cfg.storeName })
+      body: JSON.stringify({
+        sheet: printCanvas.toDataURL('image/jpeg', 0.9), photo, no,
+        gif: gif ? await blobToDataUrl(gif) : null,
+        place: state.cfg.eventName || state.cfg.storeName
+      })
     });
     const j = await r.json().catch(() => ({}));
     if (!r.ok || !j.url) throw new Error(j.error || `share failed (${r.status})`);
@@ -331,6 +343,82 @@
     cv.dataset.url = text;
   }
 
+  // ---------- boomerang ----------
+  // A short burst plays forward then backward. The GIF reaches the guest through the
+  // QR code, so the option only shows when photo downloads are set up.
+  const BURST = 16, BURST_GAP = 90, LOOP_DELAY = 70;
+  const GIF_W = 540, GIF_H = 675, GIF_PHOTO = 492, GIF_PAD = 24;
+  const loopOrder = (n) => [...Array(n).keys(), ...[...Array(Math.max(0, n - 2)).keys()].map((i) => n - 2 - i)];
+  function boomerangOn() {
+    return state.cfg.boomerang !== false && !!shareRoute() && !!window.gifenc;
+  }
+  function renderMode() {
+    if (!boomerangOn() && state.mode === 'boomerang') state.mode = 'photo';
+    $('modeBox').hidden = !boomerangOn();
+    document.querySelectorAll('.mode-opt').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.mode === state.mode)));
+    booth.classList.toggle('is-boomerang', state.mode === 'boomerang');
+    const boom = state.mode === 'boomerang';
+    $('step2').textContent = boom ? 'Move when it says Go' : 'Hold your pose';
+    if (boom) $('attractLede').textContent = 'Choose a timer, then touch anywhere on the screen. Move when it says Go: your boomerang goes to your phone and an A5 portrait prints.';
+    else if (state.lede) $('attractLede').textContent = state.lede;
+  }
+  function grabSquare(size) {
+    const c = document.createElement('canvas'); c.width = c.height = size;
+    const g = c.getContext('2d');
+    if (state.cfg.mirrorPrint) { g.translate(size, 0); g.scale(-1, 1); }
+    drawCover(g, state.stream && video.videoWidth ? video : (state.uploaded || standIn()), 0, 0, size, size);
+    return c;
+  }
+  // Static part of every GIF frame: white card, wordmark, place and portrait number.
+  function makeGifBase(no) {
+    const c = document.createElement('canvas'); c.width = GIF_W; c.height = GIF_H;
+    const g = c.getContext('2d');
+    g.fillStyle = '#ffffff'; g.fillRect(0, 0, GIF_W, GIF_H);
+    g.strokeStyle = '#000000'; g.lineWidth = 1; g.strokeRect(6.5, 6.5, GIF_W - 13, GIF_H - 13);
+    g.textAlign = 'center';
+    g.fillStyle = '#6e522b'; g.font = 'italic 600 17px "Bodoni Moda", Georgia, serif';
+    g.fillText('The', GIF_W / 2, GIF_PAD + GIF_PHOTO + 40);
+    g.fillStyle = '#000000'; g.font = '600 32px "Bodoni Moda", Georgia, serif'; g.letterSpacing = '12px';
+    g.fillText('COLLECTIVE', GIF_W / 2 + 6, GIF_PAD + GIF_PHOTO + 76);
+    g.fillStyle = '#3a3a3a'; g.font = '700 11px Manrope, "Segoe UI", Arial, sans-serif'; g.letterSpacing = '2px';
+    const place = (state.cfg.eventName || state.cfg.storeName || '').toUpperCase();
+    g.fillText(`${place}  \u00b7  ${fmtNo(no).toUpperCase()}`, GIF_W / 2 + 1, GIF_PAD + GIF_PHOTO + 108);
+    g.letterSpacing = '0px';
+    return c;
+  }
+  function drawGifFrame(g, i) {
+    g.drawImage(state.gifBase, 0, 0);
+    g.drawImage(state.rendered[i], GIF_PAD, GIF_PAD, GIF_PHOTO, GIF_PHOTO);
+    g.strokeStyle = '#000000'; g.lineWidth = 1; g.strokeRect(GIF_PAD + 0.5, GIF_PAD + 0.5, GIF_PHOTO - 1, GIF_PHOTO - 1);
+  }
+  function stopLoop() { clearInterval(state.loopTimer); state.loopTimer = null; }
+  function playLoop() {
+    stopLoop();
+    if (!state.frames.length) return;
+    state.gifBase = makeGifBase(lastNo() + 1);
+    state.rendered = state.frames.map((f) => finished(f, GIF_PHOTO, GIF_PHOTO, state.filter));
+    const order = loopOrder(state.rendered.length), g = $('loopCanvas').getContext('2d');
+    let k = 0;
+    drawGifFrame(g, order[0]);
+    state.loopTimer = setInterval(() => { k = (k + 1) % order.length; drawGifFrame(g, order[k]); }, LOOP_DELAY);
+  }
+  async function buildGif() {
+    const { GIFEncoder, quantize, applyPalette } = window.gifenc;
+    const c = document.createElement('canvas'); c.width = GIF_W; c.height = GIF_H;
+    const g = c.getContext('2d', { willReadFrequently: true });
+    const enc = GIFEncoder();
+    for (const i of loopOrder(state.rendered.length)) {
+      drawGifFrame(g, i);
+      const { data } = g.getImageData(0, 0, GIF_W, GIF_H);
+      const palette = quantize(data, 256);
+      enc.writeFrame(applyPalette(data, palette), GIF_W, GIF_H, { palette, delay: LOOP_DELAY });
+      await sleep(0); // keep the screen responsive while encoding
+    }
+    enc.finish();
+    return new Blob([enc.bytes()], { type: 'image/gif' });
+  }
+  const blobToDataUrl = (b) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(b); });
+
   // ---------- stages ----------
   function setStage(name) {
     booth.dataset.stage = name;
@@ -350,6 +438,9 @@
     state.copies = state.cfg.copies || 1;
     state.timer = defaultTimer();
     renderTimer();
+    stopLoop();
+    state.mode = 'photo'; state.frames = []; state.rendered = [];
+    renderMode();
     $('qrBlock').hidden = true;
     updateCopies();
     renderFinishPickers();
@@ -386,7 +477,7 @@
     const city = (c.storeName || '').split(',')[0].trim();
     $('thanks').textContent = city ? `Thank you for visiting The Collective, ${city}.` : 'Thank you for visiting The Collective.';
     const paper = c.paper.name || `${c.paper.widthIn} × ${c.paper.heightIn} in`;
-    $('attractLede').textContent = c.shots > 1
+    state.lede = $('attractLede').textContent = c.shots > 1
       ? `Choose a timer, then touch anywhere on the screen. Three shots, one ${paper} print, framed by The Collective.`
       : `Choose a timer, then touch anywhere on the screen. When the count ends, your portrait prints on ${paper}, framed by The Collective.`;
     $('previewCaption').textContent = c.paper.name === 'A5' ? 'Your print · A5 · 148 × 210 mm' : `Your print · ${paper}`;
@@ -395,11 +486,11 @@
     const cc = cloudCfg();
     $('cloudName').value = cc?.name || ''; $('cloudPreset').value = cc?.preset || '';
     describeShare();
+    renderMode();
     $('mirrorChk').checked = !!c.mirrorPreview;
     booth.classList.toggle('mirror', !!c.mirrorPreview);
     const W = Math.round(c.paper.widthIn * c.paper.dpi), H = Math.round(c.paper.heightIn * c.paper.dpi);
     printCanvas.width = W; printCanvas.height = H;
-    printCanvas.style.height = `${Math.round(490 * H / W)}px`;
   }
 
   // ---------- camera ----------
@@ -489,7 +580,10 @@
     const run = ++state.run;
     const live = () => run === state.run;
     state.shots = [];
-    const total = state.cfg.shots || 1;
+    const boom = state.mode === 'boomerang';
+    const total = boom ? 1 : (state.cfg.shots || 1);
+    state.frames = [];
+    stopLoop();
     setStage('countdown');
     for (let i = 0; i < total; i++) {
       $('shotLabel').textContent = total > 1 ? `Shot ${i + 1} of ${total} · Eyes to the lens` : 'Eyes to the lens';
@@ -499,6 +593,21 @@
         await sleep(1000);
         if (!live()) return;
       }
+      if (boom) {
+        $('shotLabel').textContent = 'Move now';
+        const el = $('countNum'); el.textContent = 'Go'; el.classList.remove('tick'); void el.offsetWidth; el.classList.add('tick');
+        const bar = $('recBar');
+        bar.style.setProperty('--rec', `${BURST * BURST_GAP}ms`);
+        bar.classList.remove('on'); void bar.offsetWidth; bar.classList.add('on');
+        for (let f = 0; f < BURST; f++) {
+          state.frames.push(grabSquare(1080));
+          await sleep(BURST_GAP);
+          if (!live()) { bar.classList.remove('on'); return; }
+        }
+        bar.classList.remove('on');
+        state.shots.push(state.frames[Math.floor(BURST / 2)]);
+        continue;
+      }
       flash.classList.remove('on'); void flash.offsetWidth; flash.classList.add('on');
       state.shots.push(grabFrame());
       await sleep(total > 1 ? 1000 : 450);
@@ -507,6 +616,9 @@
     await compose(printCanvas, state.shots);
     paintThumbs();
     if (!live()) return;
+    if (boom) playLoop();
+    $('previewCaption').textContent = boom ? 'Your boomerang · prints as an A5 portrait'
+      : (state.cfg.paper.name === 'A5' ? 'Your print · A5 · 148 × 210 mm' : 'Your print');
     state.busy = false;
     setStage('review');
     if (state.cfg.autoPrint) { await sleep(1800); doPrint(); }
@@ -630,6 +742,7 @@
     const started = Date.now();
     const no = lastNo() + 1;
     $('qrBlock').hidden = true;
+    $('qrTitle').textContent = state.mode === 'boomerang' ? 'Scan to save your boomerang' : 'Scan to save your portrait';
     const sharing = makeShareLink(fmtNo(no)).catch((e) => {
       $('adminError').textContent = `QR code not made: ${e.message || e}`;
       return null;
@@ -652,7 +765,8 @@
       saveNo(no);
       $('doneImg').src = printCanvas.toDataURL('image/jpeg', 0.85);
       $('doneNo').textContent = `Printed · Portrait ${fmtNo(no)}`;
-      const link = await Promise.race([sharing, sleep(10000).then(() => null)]);
+      const link = await Promise.race([sharing, sleep(state.mode === 'boomerang' ? 20000 : 10000).then(() => null)]);
+      stopLoop();
       if (link) {
         drawQR(link.url);
         $('qrNote').textContent = link.note;
@@ -672,7 +786,7 @@
   // ---------- touch anywhere ----------
   booth.addEventListener('click', (e) => {
     if (booth.dataset.stage !== 'attract') return;
-    if (e.target.closest('#admin, #adminBtn, #homeBtn, .timer')) return;
+    if (e.target.closest('#admin, #adminBtn, #homeBtn, .timer, .mode')) return;
     captureSequence();
   });
 
@@ -704,7 +818,11 @@
       localStorage.setItem('booth.cloudPreset', $('cloudPreset').value.trim());
     } catch {}
     describeShare();
+    renderMode();
   };
+  document.querySelectorAll('.mode-opt').forEach((b) => b.addEventListener('click', () => {
+    state.mode = b.dataset.mode; renderMode();
+  }));
   $('cloudName').addEventListener('change', saveCloud);
   $('cloudPreset').addEventListener('change', saveCloud);
   $('fullscreenBtn').addEventListener('click', () => document.documentElement.requestFullscreen?.().catch(() => {}));

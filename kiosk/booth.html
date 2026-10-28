@@ -139,11 +139,22 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .camera { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 18px; }
 .camera figcaption { font-size: 14px; font-weight: 700; letter-spacing: .2em; text-transform: uppercase; color: var(--grey); }
 .mat { padding: 12px; border: 1px solid var(--bronze-line); }
-.window { position: relative; width: 600px; height: 600px; border: 1px solid var(--ink); overflow: hidden; background: #ece8e2; }
+.window { position: relative; width: 570px; height: 570px; border: 1px solid var(--ink); overflow: hidden; background: #ece8e2; }
 .window video, .window .still { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .booth.mirror .window video { transform: scaleX(-1); }
 .flash { position: absolute; inset: 0; background: var(--ground); opacity: 0; pointer-events: none; }
 .flash.on { animation: flash .5s ease-out; }
+.rec-bar { position: absolute; left: 0; bottom: 0; height: 6px; width: 100%; background: var(--ink); transform: scaleX(0); transform-origin: left; }
+.rec-bar.on { transition: transform var(--rec, 1.5s) linear; transform: scaleX(1); }
+
+/* photo / boomerang switch under the camera */
+.mode { display: inline-flex; padding: 4px; border: 1.5px solid var(--ink); border-radius: 999px; }
+.mode-opt {
+  min-width: 150px; height: 46px; padding: 0 24px; border: 0; border-radius: 999px; background: transparent;
+  font-size: 15px; font-weight: 800; letter-spacing: .16em; text-transform: uppercase;
+}
+.mode-opt[aria-checked="true"] { background: var(--ink); color: var(--ground); }
+.mode:not([hidden]) + figcaption { display: none; }
 @keyframes flash { 0% { opacity: 1 } 100% { opacity: 0 } }
 
 .prompt { position: absolute; left: 0; right: 0; bottom: 84px; flex-direction: column; align-items: center; gap: 16px; pointer-events: none; }
@@ -154,7 +165,16 @@ button { font: inherit; color: inherit; cursor: pointer; }
 /* review */
 .review { position: absolute; top: 236px; left: 240px; right: 240px; height: 720px; align-items: center; justify-content: space-between; gap: 120px; }
 .print-preview { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 16px; }
-.print-preview canvas { width: 490px; height: 696px; display: block; background: var(--ground); box-shadow: 0 30px 70px rgba(0,0,0,.12), 0 0 0 1px #e4e4e4; }
+.preview-stage { position: relative; }
+.print-preview canvas { display: block; background: var(--ground); box-shadow: 0 30px 70px rgba(0,0,0,.12), 0 0 0 1px #e4e4e4; }
+#printCanvas { width: 490px; height: auto; }
+.loop { display: none !important; width: 490px; height: 612px; }
+/* boomerang: the loop leads, the A5 print it will make sits on top like a card */
+.booth.is-boomerang .loop { display: block !important; }
+.booth.is-boomerang #printCanvas {
+  position: absolute; right: -96px; bottom: 28px; width: 170px; height: auto;
+  transform: rotate(4deg); box-shadow: 0 18px 40px rgba(0,0,0,.18), 0 0 0 1px #e4e4e4;
+}
 .print-preview figcaption { font-size: 14px; font-weight: 700; letter-spacing: .2em; text-transform: uppercase; color: var(--grey); }
 .finish-panel { width: 720px; display: flex; flex-direction: column; gap: 28px; }
 .finish-head { display: flex; flex-direction: column; gap: 10px; }
@@ -311,7 +331,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
           <p class="lede" id="attractLede">Choose a timer, then touch anywhere on the screen. When the count ends, your portrait prints on A5, framed by The Collective.</p>
           <ol class="steps">
             <li><span class="step-n">1</span><span>Touch the screen</span></li>
-            <li><span class="step-n">2</span><span>Hold your pose</span></li>
+            <li><span class="step-n">2</span><span id="step2">Hold your pose</span></li>
             <li><span class="step-n">3</span><span>Collect your print</span></li>
           </ol>
           <div class="timer" role="radiogroup" aria-label="Countdown timer">
@@ -330,9 +350,14 @@ button { font: inherit; color: inherit; cursor: pointer; }
             <video id="video" autoplay playsinline muted></video>
             <canvas id="stillCanvas" class="still" hidden></canvas>
             <div id="flash" class="flash"></div>
+            <div id="recBar" class="rec-bar"></div>
           </div>
         </div>
-        <figcaption>What you see is what prints</figcaption>
+        <div class="mode" id="modeBox" role="radiogroup" aria-label="Photo or boomerang" hidden>
+          <button type="button" class="mode-opt" data-mode="photo" role="radio" aria-checked="true">Photo</button>
+          <button type="button" class="mode-opt" data-mode="boomerang" role="radio" aria-checked="false">Boomerang</button>
+        </div>
+        <figcaption id="cameraCaption">What you see is what prints</figcaption>
       </figure>
     </section>
 
@@ -344,7 +369,10 @@ button { font: inherit; color: inherit; cursor: pointer; }
     <!-- REVIEW -->
     <section class="review">
       <figure class="print-preview">
-        <canvas id="printCanvas" width="1749" height="2481"></canvas>
+        <div class="preview-stage">
+          <canvas id="loopCanvas" class="loop" width="540" height="675" aria-label="Your boomerang, playing"></canvas>
+          <canvas id="printCanvas" width="1749" height="2481"></canvas>
+        </div>
         <figcaption id="previewCaption">Your print · A5 · 148 × 210 mm</figcaption>
       </figure>
       <div class="finish-panel">
@@ -386,7 +414,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
         <div class="qr" id="qrBlock" hidden>
           <canvas id="qrCanvas" width="400" height="400" aria-label="QR code to download your portrait"></canvas>
           <div class="qr-text">
-            <p class="qr-title">Scan to save your portrait</p>
+            <p class="qr-title" id="qrTitle">Scan to save your portrait</p>
             <p class="qr-note" id="qrNote">Point your phone camera at the code.</p>
           </div>
         </div>
@@ -2743,6 +2771,839 @@ var qrcode = function() {
 
 </script>
 <script>
+/* gifenc 1.0.3 by Matt DesLauriers, MIT licence (https://github.com/mattdesl/gifenc).
+   Wrapped for the browser: exposes window.gifenc. */
+(function () {
+var exports = {};
+var __defProp = Object.defineProperty;
+var __markAsModule = (target) => __defProp(target, "__esModule", {value: true});
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, {get: all[name], enumerable: true});
+};
+
+// src/index.js
+__markAsModule(exports);
+__export(exports, {
+  GIFEncoder: () => GIFEncoder,
+  applyPalette: () => applyPalette,
+  default: () => src_default,
+  nearestColor: () => nearestColor,
+  nearestColorIndex: () => nearestColorIndex,
+  nearestColorIndexWithDistance: () => nearestColorIndexWithDistance,
+  prequantize: () => prequantize,
+  quantize: () => quantize,
+  snapColorsToPalette: () => snapColorsToPalette
+});
+
+// src/constants.js
+var constants_default = {
+  signature: "GIF",
+  version: "89a",
+  trailer: 59,
+  extensionIntroducer: 33,
+  applicationExtensionLabel: 255,
+  graphicControlExtensionLabel: 249,
+  imageSeparator: 44,
+  signatureSize: 3,
+  versionSize: 3,
+  globalColorTableFlagMask: 128,
+  colorResolutionMask: 112,
+  sortFlagMask: 8,
+  globalColorTableSizeMask: 7,
+  applicationIdentifierSize: 8,
+  applicationAuthCodeSize: 3,
+  disposalMethodMask: 28,
+  userInputFlagMask: 2,
+  transparentColorFlagMask: 1,
+  localColorTableFlagMask: 128,
+  interlaceFlagMask: 64,
+  idSortFlagMask: 32,
+  localColorTableSizeMask: 7
+};
+
+// src/stream.js
+function createStream(initialCapacity = 256) {
+  let cursor = 0;
+  let contents = new Uint8Array(initialCapacity);
+  return {
+    get buffer() {
+      return contents.buffer;
+    },
+    reset() {
+      cursor = 0;
+    },
+    bytesView() {
+      return contents.subarray(0, cursor);
+    },
+    bytes() {
+      return contents.slice(0, cursor);
+    },
+    writeByte(byte) {
+      expand(cursor + 1);
+      contents[cursor] = byte;
+      cursor++;
+    },
+    writeBytes(data, offset = 0, byteLength = data.length) {
+      expand(cursor + byteLength);
+      for (let i = 0; i < byteLength; i++) {
+        contents[cursor++] = data[i + offset];
+      }
+    },
+    writeBytesView(data, offset = 0, byteLength = data.byteLength) {
+      expand(cursor + byteLength);
+      contents.set(data.subarray(offset, offset + byteLength), cursor);
+      cursor += byteLength;
+    }
+  };
+  function expand(newCapacity) {
+    var prevCapacity = contents.length;
+    if (prevCapacity >= newCapacity)
+      return;
+    var CAPACITY_DOUBLING_MAX = 1024 * 1024;
+    newCapacity = Math.max(newCapacity, prevCapacity * (prevCapacity < CAPACITY_DOUBLING_MAX ? 2 : 1.125) >>> 0);
+    if (prevCapacity != 0)
+      newCapacity = Math.max(newCapacity, 256);
+    const oldContents = contents;
+    contents = new Uint8Array(newCapacity);
+    if (cursor > 0)
+      contents.set(oldContents.subarray(0, cursor), 0);
+  }
+}
+
+// src/lzwEncode.js
+var BITS = 12;
+var DEFAULT_HSIZE = 5003;
+var MASKS = [
+  0,
+  1,
+  3,
+  7,
+  15,
+  31,
+  63,
+  127,
+  255,
+  511,
+  1023,
+  2047,
+  4095,
+  8191,
+  16383,
+  32767,
+  65535
+];
+function lzwEncode(width, height, pixels, colorDepth, outStream = createStream(512), accum = new Uint8Array(256), htab = new Int32Array(DEFAULT_HSIZE), codetab = new Int32Array(DEFAULT_HSIZE)) {
+  const hsize = htab.length;
+  const initCodeSize = Math.max(2, colorDepth);
+  accum.fill(0);
+  codetab.fill(0);
+  htab.fill(-1);
+  let cur_accum = 0;
+  let cur_bits = 0;
+  const init_bits = initCodeSize + 1;
+  const g_init_bits = init_bits;
+  let clear_flg = false;
+  let n_bits = g_init_bits;
+  let maxcode = (1 << n_bits) - 1;
+  const ClearCode = 1 << init_bits - 1;
+  const EOFCode = ClearCode + 1;
+  let free_ent = ClearCode + 2;
+  let a_count = 0;
+  let ent = pixels[0];
+  let hshift = 0;
+  for (let fcode = hsize; fcode < 65536; fcode *= 2) {
+    ++hshift;
+  }
+  hshift = 8 - hshift;
+  outStream.writeByte(initCodeSize);
+  output(ClearCode);
+  const length = pixels.length;
+  for (let idx = 1; idx < length; idx++) {
+    next_block: {
+      const c = pixels[idx];
+      const fcode = (c << BITS) + ent;
+      let i = c << hshift ^ ent;
+      if (htab[i] === fcode) {
+        ent = codetab[i];
+        break next_block;
+      }
+      const disp = i === 0 ? 1 : hsize - i;
+      while (htab[i] >= 0) {
+        i -= disp;
+        if (i < 0)
+          i += hsize;
+        if (htab[i] === fcode) {
+          ent = codetab[i];
+          break next_block;
+        }
+      }
+      output(ent);
+      ent = c;
+      if (free_ent < 1 << BITS) {
+        codetab[i] = free_ent++;
+        htab[i] = fcode;
+      } else {
+        htab.fill(-1);
+        free_ent = ClearCode + 2;
+        clear_flg = true;
+        output(ClearCode);
+      }
+    }
+  }
+  output(ent);
+  output(EOFCode);
+  outStream.writeByte(0);
+  return outStream.bytesView();
+  function output(code) {
+    cur_accum &= MASKS[cur_bits];
+    if (cur_bits > 0)
+      cur_accum |= code << cur_bits;
+    else
+      cur_accum = code;
+    cur_bits += n_bits;
+    while (cur_bits >= 8) {
+      accum[a_count++] = cur_accum & 255;
+      if (a_count >= 254) {
+        outStream.writeByte(a_count);
+        outStream.writeBytesView(accum, 0, a_count);
+        a_count = 0;
+      }
+      cur_accum >>= 8;
+      cur_bits -= 8;
+    }
+    if (free_ent > maxcode || clear_flg) {
+      if (clear_flg) {
+        n_bits = g_init_bits;
+        maxcode = (1 << n_bits) - 1;
+        clear_flg = false;
+      } else {
+        ++n_bits;
+        maxcode = n_bits === BITS ? 1 << n_bits : (1 << n_bits) - 1;
+      }
+    }
+    if (code == EOFCode) {
+      while (cur_bits > 0) {
+        accum[a_count++] = cur_accum & 255;
+        if (a_count >= 254) {
+          outStream.writeByte(a_count);
+          outStream.writeBytesView(accum, 0, a_count);
+          a_count = 0;
+        }
+        cur_accum >>= 8;
+        cur_bits -= 8;
+      }
+      if (a_count > 0) {
+        outStream.writeByte(a_count);
+        outStream.writeBytesView(accum, 0, a_count);
+        a_count = 0;
+      }
+    }
+  }
+}
+var lzwEncode_default = lzwEncode;
+
+// src/rgb-packing.js
+function rgb888_to_rgb565(r, g, b) {
+  return r << 8 & 63488 | g << 2 & 992 | b >> 3;
+}
+function rgba8888_to_rgba4444(r, g, b, a) {
+  return r >> 4 | g & 240 | (b & 240) << 4 | (a & 240) << 8;
+}
+function rgb888_to_rgb444(r, g, b) {
+  return r >> 4 << 8 | g & 240 | b >> 4;
+}
+
+// src/pnnquant2.js
+function clamp(value, min, max) {
+  return value < min ? min : value > max ? max : value;
+}
+function sqr(value) {
+  return value * value;
+}
+function find_nn(bins, idx, hasAlpha) {
+  var nn = 0;
+  var err = 1e100;
+  const bin1 = bins[idx];
+  const n1 = bin1.cnt;
+  const wa = bin1.ac;
+  const wr = bin1.rc;
+  const wg = bin1.gc;
+  const wb = bin1.bc;
+  for (var i = bin1.fw; i != 0; i = bins[i].fw) {
+    const bin = bins[i];
+    const n2 = bin.cnt;
+    const nerr2 = n1 * n2 / (n1 + n2);
+    if (nerr2 >= err)
+      continue;
+    var nerr = 0;
+    if (hasAlpha) {
+      nerr += nerr2 * sqr(bin.ac - wa);
+      if (nerr >= err)
+        continue;
+    }
+    nerr += nerr2 * sqr(bin.rc - wr);
+    if (nerr >= err)
+      continue;
+    nerr += nerr2 * sqr(bin.gc - wg);
+    if (nerr >= err)
+      continue;
+    nerr += nerr2 * sqr(bin.bc - wb);
+    if (nerr >= err)
+      continue;
+    err = nerr;
+    nn = i;
+  }
+  bin1.err = err;
+  bin1.nn = nn;
+}
+function create_bin() {
+  return {
+    ac: 0,
+    rc: 0,
+    gc: 0,
+    bc: 0,
+    cnt: 0,
+    nn: 0,
+    fw: 0,
+    bk: 0,
+    tm: 0,
+    mtm: 0,
+    err: 0
+  };
+}
+function create_bin_list(data, format) {
+  const bincount = format === "rgb444" ? 4096 : 65536;
+  const bins = new Array(bincount);
+  const size = data.length;
+  if (format === "rgba4444") {
+    for (let i = 0; i < size; ++i) {
+      const color = data[i];
+      const a = color >> 24 & 255;
+      const b = color >> 16 & 255;
+      const g = color >> 8 & 255;
+      const r = color & 255;
+      const index = rgba8888_to_rgba4444(r, g, b, a);
+      let bin = index in bins ? bins[index] : bins[index] = create_bin();
+      bin.rc += r;
+      bin.gc += g;
+      bin.bc += b;
+      bin.ac += a;
+      bin.cnt++;
+    }
+  } else if (format === "rgb444") {
+    for (let i = 0; i < size; ++i) {
+      const color = data[i];
+      const b = color >> 16 & 255;
+      const g = color >> 8 & 255;
+      const r = color & 255;
+      const index = rgb888_to_rgb444(r, g, b);
+      let bin = index in bins ? bins[index] : bins[index] = create_bin();
+      bin.rc += r;
+      bin.gc += g;
+      bin.bc += b;
+      bin.cnt++;
+    }
+  } else {
+    for (let i = 0; i < size; ++i) {
+      const color = data[i];
+      const b = color >> 16 & 255;
+      const g = color >> 8 & 255;
+      const r = color & 255;
+      const index = rgb888_to_rgb565(r, g, b);
+      let bin = index in bins ? bins[index] : bins[index] = create_bin();
+      bin.rc += r;
+      bin.gc += g;
+      bin.bc += b;
+      bin.cnt++;
+    }
+  }
+  return bins;
+}
+function quantize(rgba, maxColors, opts = {}) {
+  const {
+    format = "rgb565",
+    clearAlpha = true,
+    clearAlphaColor = 0,
+    clearAlphaThreshold = 0,
+    oneBitAlpha = false
+  } = opts;
+  if (!rgba || !rgba.buffer) {
+    throw new Error("quantize() expected RGBA Uint8Array data");
+  }
+  if (!(rgba instanceof Uint8Array) && !(rgba instanceof Uint8ClampedArray)) {
+    throw new Error("quantize() expected RGBA Uint8Array data");
+  }
+  const data = new Uint32Array(rgba.buffer);
+  let useSqrt = opts.useSqrt !== false;
+  const hasAlpha = format === "rgba4444";
+  const bins = create_bin_list(data, format);
+  const bincount = bins.length;
+  const bincountMinusOne = bincount - 1;
+  const heap = new Uint32Array(bincount + 1);
+  var maxbins = 0;
+  for (var i = 0; i < bincount; ++i) {
+    const bin = bins[i];
+    if (bin != null) {
+      var d = 1 / bin.cnt;
+      if (hasAlpha)
+        bin.ac *= d;
+      bin.rc *= d;
+      bin.gc *= d;
+      bin.bc *= d;
+      bins[maxbins++] = bin;
+    }
+  }
+  if (sqr(maxColors) / maxbins < 0.022) {
+    useSqrt = false;
+  }
+  var i = 0;
+  for (; i < maxbins - 1; ++i) {
+    bins[i].fw = i + 1;
+    bins[i + 1].bk = i;
+    if (useSqrt)
+      bins[i].cnt = Math.sqrt(bins[i].cnt);
+  }
+  if (useSqrt)
+    bins[i].cnt = Math.sqrt(bins[i].cnt);
+  var h, l, l2;
+  for (i = 0; i < maxbins; ++i) {
+    find_nn(bins, i, false);
+    var err = bins[i].err;
+    for (l = ++heap[0]; l > 1; l = l2) {
+      l2 = l >> 1;
+      if (bins[h = heap[l2]].err <= err)
+        break;
+      heap[l] = h;
+    }
+    heap[l] = i;
+  }
+  var extbins = maxbins - maxColors;
+  for (i = 0; i < extbins; ) {
+    var tb;
+    for (; ; ) {
+      var b1 = heap[1];
+      tb = bins[b1];
+      if (tb.tm >= tb.mtm && bins[tb.nn].mtm <= tb.tm)
+        break;
+      if (tb.mtm == bincountMinusOne)
+        b1 = heap[1] = heap[heap[0]--];
+      else {
+        find_nn(bins, b1, false);
+        tb.tm = i;
+      }
+      var err = bins[b1].err;
+      for (l = 1; (l2 = l + l) <= heap[0]; l = l2) {
+        if (l2 < heap[0] && bins[heap[l2]].err > bins[heap[l2 + 1]].err)
+          l2++;
+        if (err <= bins[h = heap[l2]].err)
+          break;
+        heap[l] = h;
+      }
+      heap[l] = b1;
+    }
+    var nb = bins[tb.nn];
+    var n1 = tb.cnt;
+    var n2 = nb.cnt;
+    var d = 1 / (n1 + n2);
+    if (hasAlpha)
+      tb.ac = d * (n1 * tb.ac + n2 * nb.ac);
+    tb.rc = d * (n1 * tb.rc + n2 * nb.rc);
+    tb.gc = d * (n1 * tb.gc + n2 * nb.gc);
+    tb.bc = d * (n1 * tb.bc + n2 * nb.bc);
+    tb.cnt += nb.cnt;
+    tb.mtm = ++i;
+    bins[nb.bk].fw = nb.fw;
+    bins[nb.fw].bk = nb.bk;
+    nb.mtm = bincountMinusOne;
+  }
+  let palette = [];
+  var k = 0;
+  for (i = 0; ; ++k) {
+    let r = clamp(Math.round(bins[i].rc), 0, 255);
+    let g = clamp(Math.round(bins[i].gc), 0, 255);
+    let b = clamp(Math.round(bins[i].bc), 0, 255);
+    let a = 255;
+    if (hasAlpha) {
+      a = clamp(Math.round(bins[i].ac), 0, 255);
+      if (oneBitAlpha) {
+        const threshold = typeof oneBitAlpha === "number" ? oneBitAlpha : 127;
+        a = a <= threshold ? 0 : 255;
+      }
+      if (clearAlpha && a <= clearAlphaThreshold) {
+        r = g = b = clearAlphaColor;
+        a = 0;
+      }
+    }
+    const color = hasAlpha ? [r, g, b, a] : [r, g, b];
+    const exists = existsInPalette(palette, color);
+    if (!exists)
+      palette.push(color);
+    if ((i = bins[i].fw) == 0)
+      break;
+  }
+  return palette;
+}
+function existsInPalette(palette, color) {
+  for (let i = 0; i < palette.length; i++) {
+    const p = palette[i];
+    let matchesRGB = p[0] === color[0] && p[1] === color[1] && p[2] === color[2];
+    let matchesAlpha = p.length >= 4 && color.length >= 4 ? p[3] === color[3] : true;
+    if (matchesRGB && matchesAlpha)
+      return true;
+  }
+  return false;
+}
+
+// src/color.js
+function euclideanDistanceSquared(a, b) {
+  var sum = 0;
+  var n;
+  for (n = 0; n < a.length; n++) {
+    const dx = a[n] - b[n];
+    sum += dx * dx;
+  }
+  return sum;
+}
+
+// src/palettize.js
+function roundStep(byte, step) {
+  return step > 1 ? Math.round(byte / step) * step : byte;
+}
+function prequantize(rgba, {roundRGB = 5, roundAlpha = 10, oneBitAlpha = null} = {}) {
+  const data = new Uint32Array(rgba.buffer);
+  for (let i = 0; i < data.length; i++) {
+    const color = data[i];
+    let a = color >> 24 & 255;
+    let b = color >> 16 & 255;
+    let g = color >> 8 & 255;
+    let r = color & 255;
+    a = roundStep(a, roundAlpha);
+    if (oneBitAlpha) {
+      const threshold = typeof oneBitAlpha === "number" ? oneBitAlpha : 127;
+      a = a <= threshold ? 0 : 255;
+    }
+    r = roundStep(r, roundRGB);
+    g = roundStep(g, roundRGB);
+    b = roundStep(b, roundRGB);
+    data[i] = a << 24 | b << 16 | g << 8 | r << 0;
+  }
+}
+function applyPalette(rgba, palette, format = "rgb565") {
+  if (!rgba || !rgba.buffer) {
+    throw new Error("quantize() expected RGBA Uint8Array data");
+  }
+  if (!(rgba instanceof Uint8Array) && !(rgba instanceof Uint8ClampedArray)) {
+    throw new Error("quantize() expected RGBA Uint8Array data");
+  }
+  if (palette.length > 256) {
+    throw new Error("applyPalette() only works with 256 colors or less");
+  }
+  const data = new Uint32Array(rgba.buffer);
+  const length = data.length;
+  const bincount = format === "rgb444" ? 4096 : 65536;
+  const index = new Uint8Array(length);
+  const cache = new Array(bincount);
+  const hasAlpha = format === "rgba4444";
+  if (format === "rgba4444") {
+    for (let i = 0; i < length; i++) {
+      const color = data[i];
+      const a = color >> 24 & 255;
+      const b = color >> 16 & 255;
+      const g = color >> 8 & 255;
+      const r = color & 255;
+      const key = rgba8888_to_rgba4444(r, g, b, a);
+      const idx = key in cache ? cache[key] : cache[key] = nearestColorIndexRGBA(r, g, b, a, palette);
+      index[i] = idx;
+    }
+  } else {
+    const rgb888_to_key = format === "rgb444" ? rgb888_to_rgb444 : rgb888_to_rgb565;
+    for (let i = 0; i < length; i++) {
+      const color = data[i];
+      const b = color >> 16 & 255;
+      const g = color >> 8 & 255;
+      const r = color & 255;
+      const key = rgb888_to_key(r, g, b);
+      const idx = key in cache ? cache[key] : cache[key] = nearestColorIndexRGB(r, g, b, palette);
+      index[i] = idx;
+    }
+  }
+  return index;
+}
+function nearestColorIndexRGBA(r, g, b, a, palette) {
+  let k = 0;
+  let mindist = 1e100;
+  for (let i = 0; i < palette.length; i++) {
+    const px2 = palette[i];
+    const a2 = px2[3];
+    let curdist = sqr2(a2 - a);
+    if (curdist > mindist)
+      continue;
+    const r2 = px2[0];
+    curdist += sqr2(r2 - r);
+    if (curdist > mindist)
+      continue;
+    const g2 = px2[1];
+    curdist += sqr2(g2 - g);
+    if (curdist > mindist)
+      continue;
+    const b2 = px2[2];
+    curdist += sqr2(b2 - b);
+    if (curdist > mindist)
+      continue;
+    mindist = curdist;
+    k = i;
+  }
+  return k;
+}
+function nearestColorIndexRGB(r, g, b, palette) {
+  let k = 0;
+  let mindist = 1e100;
+  for (let i = 0; i < palette.length; i++) {
+    const px2 = palette[i];
+    const r2 = px2[0];
+    let curdist = sqr2(r2 - r);
+    if (curdist > mindist)
+      continue;
+    const g2 = px2[1];
+    curdist += sqr2(g2 - g);
+    if (curdist > mindist)
+      continue;
+    const b2 = px2[2];
+    curdist += sqr2(b2 - b);
+    if (curdist > mindist)
+      continue;
+    mindist = curdist;
+    k = i;
+  }
+  return k;
+}
+function snapColorsToPalette(palette, knownColors, threshold = 5) {
+  if (!palette.length || !knownColors.length)
+    return;
+  const paletteRGB = palette.map((p) => p.slice(0, 3));
+  const thresholdSq = threshold * threshold;
+  const dim = palette[0].length;
+  for (let i = 0; i < knownColors.length; i++) {
+    let color = knownColors[i];
+    if (color.length < dim) {
+      color = [color[0], color[1], color[2], 255];
+    } else if (color.length > dim) {
+      color = color.slice(0, 3);
+    } else {
+      color = color.slice();
+    }
+    const r = nearestColorIndexWithDistance(paletteRGB, color.slice(0, 3), euclideanDistanceSquared);
+    const idx = r[0];
+    const distanceSq = r[1];
+    if (distanceSq > 0 && distanceSq <= thresholdSq) {
+      palette[idx] = color;
+    }
+  }
+}
+function sqr2(a) {
+  return a * a;
+}
+function nearestColorIndex(colors, pixel, distanceFn = euclideanDistanceSquared) {
+  let minDist = Infinity;
+  let minDistIndex = -1;
+  for (let j = 0; j < colors.length; j++) {
+    const paletteColor = colors[j];
+    const dist = distanceFn(pixel, paletteColor);
+    if (dist < minDist) {
+      minDist = dist;
+      minDistIndex = j;
+    }
+  }
+  return minDistIndex;
+}
+function nearestColorIndexWithDistance(colors, pixel, distanceFn = euclideanDistanceSquared) {
+  let minDist = Infinity;
+  let minDistIndex = -1;
+  for (let j = 0; j < colors.length; j++) {
+    const paletteColor = colors[j];
+    const dist = distanceFn(pixel, paletteColor);
+    if (dist < minDist) {
+      minDist = dist;
+      minDistIndex = j;
+    }
+  }
+  return [minDistIndex, minDist];
+}
+function nearestColor(colors, pixel, distanceFn = euclideanDistanceSquared) {
+  return colors[nearestColorIndex(colors, pixel, distanceFn)];
+}
+
+// src/index.js
+function GIFEncoder(opt = {}) {
+  const {initialCapacity = 4096, auto = true} = opt;
+  const stream = createStream(initialCapacity);
+  const HSIZE = 5003;
+  const accum = new Uint8Array(256);
+  const htab = new Int32Array(HSIZE);
+  const codetab = new Int32Array(HSIZE);
+  let hasInit = false;
+  return {
+    reset() {
+      stream.reset();
+      hasInit = false;
+    },
+    finish() {
+      stream.writeByte(constants_default.trailer);
+    },
+    bytes() {
+      return stream.bytes();
+    },
+    bytesView() {
+      return stream.bytesView();
+    },
+    get buffer() {
+      return stream.buffer;
+    },
+    get stream() {
+      return stream;
+    },
+    writeHeader,
+    writeFrame(index, width, height, opts = {}) {
+      const {
+        transparent = false,
+        transparentIndex = 0,
+        delay = 0,
+        palette = null,
+        repeat = 0,
+        colorDepth = 8,
+        dispose = -1
+      } = opts;
+      let first = false;
+      if (auto) {
+        if (!hasInit) {
+          first = true;
+          writeHeader();
+          hasInit = true;
+        }
+      } else {
+        first = Boolean(opts.first);
+      }
+      width = Math.max(0, Math.floor(width));
+      height = Math.max(0, Math.floor(height));
+      if (first) {
+        if (!palette) {
+          throw new Error("First frame must include a { palette } option");
+        }
+        encodeLogicalScreenDescriptor(stream, width, height, palette, colorDepth);
+        encodeColorTable(stream, palette);
+        if (repeat >= 0) {
+          encodeNetscapeExt(stream, repeat);
+        }
+      }
+      const delayTime = Math.round(delay / 10);
+      encodeGraphicControlExt(stream, dispose, delayTime, transparent, transparentIndex);
+      const useLocalColorTable = Boolean(palette) && !first;
+      encodeImageDescriptor(stream, width, height, useLocalColorTable ? palette : null);
+      if (useLocalColorTable)
+        encodeColorTable(stream, palette);
+      encodePixels(stream, index, width, height, colorDepth, accum, htab, codetab);
+    }
+  };
+  function writeHeader() {
+    writeUTFBytes(stream, "GIF89a");
+  }
+}
+function encodeGraphicControlExt(stream, dispose, delay, transparent, transparentIndex) {
+  stream.writeByte(33);
+  stream.writeByte(249);
+  stream.writeByte(4);
+  if (transparentIndex < 0) {
+    transparentIndex = 0;
+    transparent = false;
+  }
+  var transp, disp;
+  if (!transparent) {
+    transp = 0;
+    disp = 0;
+  } else {
+    transp = 1;
+    disp = 2;
+  }
+  if (dispose >= 0) {
+    disp = dispose & 7;
+  }
+  disp <<= 2;
+  const userInput = 0;
+  stream.writeByte(0 | disp | userInput | transp);
+  writeUInt16(stream, delay);
+  stream.writeByte(transparentIndex || 0);
+  stream.writeByte(0);
+}
+function encodeLogicalScreenDescriptor(stream, width, height, palette, colorDepth = 8) {
+  const globalColorTableFlag = 1;
+  const sortFlag = 0;
+  const globalColorTableSize = colorTableSize(palette.length) - 1;
+  const fields = globalColorTableFlag << 7 | colorDepth - 1 << 4 | sortFlag << 3 | globalColorTableSize;
+  const backgroundColorIndex = 0;
+  const pixelAspectRatio = 0;
+  writeUInt16(stream, width);
+  writeUInt16(stream, height);
+  stream.writeBytes([fields, backgroundColorIndex, pixelAspectRatio]);
+}
+function encodeNetscapeExt(stream, repeat) {
+  stream.writeByte(33);
+  stream.writeByte(255);
+  stream.writeByte(11);
+  writeUTFBytes(stream, "NETSCAPE2.0");
+  stream.writeByte(3);
+  stream.writeByte(1);
+  writeUInt16(stream, repeat);
+  stream.writeByte(0);
+}
+function encodeColorTable(stream, palette) {
+  const colorTableLength = 1 << colorTableSize(palette.length);
+  for (let i = 0; i < colorTableLength; i++) {
+    let color = [0, 0, 0];
+    if (i < palette.length) {
+      color = palette[i];
+    }
+    stream.writeByte(color[0]);
+    stream.writeByte(color[1]);
+    stream.writeByte(color[2]);
+  }
+}
+function encodeImageDescriptor(stream, width, height, localPalette) {
+  stream.writeByte(44);
+  writeUInt16(stream, 0);
+  writeUInt16(stream, 0);
+  writeUInt16(stream, width);
+  writeUInt16(stream, height);
+  if (localPalette) {
+    const interlace = 0;
+    const sorted = 0;
+    const palSize = colorTableSize(localPalette.length) - 1;
+    stream.writeByte(128 | interlace | sorted | 0 | palSize);
+  } else {
+    stream.writeByte(0);
+  }
+}
+function encodePixels(stream, index, width, height, colorDepth = 8, accum, htab, codetab) {
+  lzwEncode_default(width, height, index, colorDepth, stream, accum, htab, codetab);
+}
+function writeUInt16(stream, short) {
+  stream.writeByte(short & 255);
+  stream.writeByte(short >> 8 & 255);
+}
+function writeUTFBytes(stream, text) {
+  for (var i = 0; i < text.length; i++) {
+    stream.writeByte(text.charCodeAt(i));
+  }
+}
+function colorTableSize(length) {
+  return Math.max(Math.ceil(Math.log2(length)), 1);
+}
+var src_default = GIFEncoder;
+window.gifenc = exports;
+})();
+
+</script>
+<script>
 /* THE COLLECTIVE photo booth — kiosk logic.
    Stages: attract -> countdown -> review -> printing -> done | error
    Two ways to print:
@@ -2770,6 +3631,11 @@ var qrcode = function() {
     shots: [],
     filter: 'original',
     timer: 3,
+    mode: 'photo',          // or 'boomerang'
+    frames: [],             // boomerang burst, square canvases
+    rendered: [],           // the burst with the current finish applied
+    loopTimer: null,
+    gifBase: null,
     copies: 1,
     busy: false,
     idleTimer: null,
@@ -2979,6 +3845,7 @@ var qrcode = function() {
     document.querySelectorAll('#signature button, #classic button')
       .forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.id === id)));
     if (state.shots.length) await compose(printCanvas, state.shots);
+    if (state.mode === 'boomerang') playLoop();
     armIdle('review');
   }
 
@@ -3033,15 +3900,17 @@ var qrcode = function() {
   async function makeShareLink(no) {
     const route = shareRoute();
     if (!route) return null;
+    const gif = state.mode === 'boomerang' && state.rendered.length ? await buildGif() : null;
     if (route === 'cloud') {
       const { name, preset } = cloudCfg();
       const fd = new FormData();
-      fd.append('file', await toBlob(printCanvas, 0.9), 'portrait.jpg');
+      if (gif) fd.append('file', gif, 'boomerang.gif');
+      else fd.append('file', await toBlob(printCanvas, 0.9), 'portrait.jpg');
       fd.append('upload_preset', preset);
       const r = await fetch(`https://api.cloudinary.com/v1_1/${encodeURIComponent(name)}/image/upload`, { method: 'POST', body: fd });
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.secure_url) throw new Error(j.error?.message || `upload failed (${r.status})`);
-      return { url: j.secure_url, note: 'Opens your portrait on your phone. Press and hold it to save.' };
+      return { url: j.secure_url, note: `Opens your ${gif ? 'boomerang' : 'portrait'} on your phone. Press and hold it to save.` };
     }
     let photo = null;
     if (state.shots.length === 1) {
@@ -3051,7 +3920,11 @@ var qrcode = function() {
     }
     const r = await fetch('/api/share', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sheet: printCanvas.toDataURL('image/jpeg', 0.9), photo, no, place: state.cfg.eventName || state.cfg.storeName })
+      body: JSON.stringify({
+        sheet: printCanvas.toDataURL('image/jpeg', 0.9), photo, no,
+        gif: gif ? await blobToDataUrl(gif) : null,
+        place: state.cfg.eventName || state.cfg.storeName
+      })
     });
     const j = await r.json().catch(() => ({}));
     if (!r.ok || !j.url) throw new Error(j.error || `share failed (${r.status})`);
@@ -3076,6 +3949,82 @@ var qrcode = function() {
     cv.dataset.url = text;
   }
 
+  // ---------- boomerang ----------
+  // A short burst plays forward then backward. The GIF reaches the guest through the
+  // QR code, so the option only shows when photo downloads are set up.
+  const BURST = 16, BURST_GAP = 90, LOOP_DELAY = 70;
+  const GIF_W = 540, GIF_H = 675, GIF_PHOTO = 492, GIF_PAD = 24;
+  const loopOrder = (n) => [...Array(n).keys(), ...[...Array(Math.max(0, n - 2)).keys()].map((i) => n - 2 - i)];
+  function boomerangOn() {
+    return state.cfg.boomerang !== false && !!shareRoute() && !!window.gifenc;
+  }
+  function renderMode() {
+    if (!boomerangOn() && state.mode === 'boomerang') state.mode = 'photo';
+    $('modeBox').hidden = !boomerangOn();
+    document.querySelectorAll('.mode-opt').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.mode === state.mode)));
+    booth.classList.toggle('is-boomerang', state.mode === 'boomerang');
+    const boom = state.mode === 'boomerang';
+    $('step2').textContent = boom ? 'Move when it says Go' : 'Hold your pose';
+    if (boom) $('attractLede').textContent = 'Choose a timer, then touch anywhere on the screen. Move when it says Go: your boomerang goes to your phone and an A5 portrait prints.';
+    else if (state.lede) $('attractLede').textContent = state.lede;
+  }
+  function grabSquare(size) {
+    const c = document.createElement('canvas'); c.width = c.height = size;
+    const g = c.getContext('2d');
+    if (state.cfg.mirrorPrint) { g.translate(size, 0); g.scale(-1, 1); }
+    drawCover(g, state.stream && video.videoWidth ? video : (state.uploaded || standIn()), 0, 0, size, size);
+    return c;
+  }
+  // Static part of every GIF frame: white card, wordmark, place and portrait number.
+  function makeGifBase(no) {
+    const c = document.createElement('canvas'); c.width = GIF_W; c.height = GIF_H;
+    const g = c.getContext('2d');
+    g.fillStyle = '#ffffff'; g.fillRect(0, 0, GIF_W, GIF_H);
+    g.strokeStyle = '#000000'; g.lineWidth = 1; g.strokeRect(6.5, 6.5, GIF_W - 13, GIF_H - 13);
+    g.textAlign = 'center';
+    g.fillStyle = '#6e522b'; g.font = 'italic 600 17px "Bodoni Moda", Georgia, serif';
+    g.fillText('The', GIF_W / 2, GIF_PAD + GIF_PHOTO + 40);
+    g.fillStyle = '#000000'; g.font = '600 32px "Bodoni Moda", Georgia, serif'; g.letterSpacing = '12px';
+    g.fillText('COLLECTIVE', GIF_W / 2 + 6, GIF_PAD + GIF_PHOTO + 76);
+    g.fillStyle = '#3a3a3a'; g.font = '700 11px Manrope, "Segoe UI", Arial, sans-serif'; g.letterSpacing = '2px';
+    const place = (state.cfg.eventName || state.cfg.storeName || '').toUpperCase();
+    g.fillText(`${place}  \u00b7  ${fmtNo(no).toUpperCase()}`, GIF_W / 2 + 1, GIF_PAD + GIF_PHOTO + 108);
+    g.letterSpacing = '0px';
+    return c;
+  }
+  function drawGifFrame(g, i) {
+    g.drawImage(state.gifBase, 0, 0);
+    g.drawImage(state.rendered[i], GIF_PAD, GIF_PAD, GIF_PHOTO, GIF_PHOTO);
+    g.strokeStyle = '#000000'; g.lineWidth = 1; g.strokeRect(GIF_PAD + 0.5, GIF_PAD + 0.5, GIF_PHOTO - 1, GIF_PHOTO - 1);
+  }
+  function stopLoop() { clearInterval(state.loopTimer); state.loopTimer = null; }
+  function playLoop() {
+    stopLoop();
+    if (!state.frames.length) return;
+    state.gifBase = makeGifBase(lastNo() + 1);
+    state.rendered = state.frames.map((f) => finished(f, GIF_PHOTO, GIF_PHOTO, state.filter));
+    const order = loopOrder(state.rendered.length), g = $('loopCanvas').getContext('2d');
+    let k = 0;
+    drawGifFrame(g, order[0]);
+    state.loopTimer = setInterval(() => { k = (k + 1) % order.length; drawGifFrame(g, order[k]); }, LOOP_DELAY);
+  }
+  async function buildGif() {
+    const { GIFEncoder, quantize, applyPalette } = window.gifenc;
+    const c = document.createElement('canvas'); c.width = GIF_W; c.height = GIF_H;
+    const g = c.getContext('2d', { willReadFrequently: true });
+    const enc = GIFEncoder();
+    for (const i of loopOrder(state.rendered.length)) {
+      drawGifFrame(g, i);
+      const { data } = g.getImageData(0, 0, GIF_W, GIF_H);
+      const palette = quantize(data, 256);
+      enc.writeFrame(applyPalette(data, palette), GIF_W, GIF_H, { palette, delay: LOOP_DELAY });
+      await sleep(0); // keep the screen responsive while encoding
+    }
+    enc.finish();
+    return new Blob([enc.bytes()], { type: 'image/gif' });
+  }
+  const blobToDataUrl = (b) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(b); });
+
   // ---------- stages ----------
   function setStage(name) {
     booth.dataset.stage = name;
@@ -3095,6 +4044,9 @@ var qrcode = function() {
     state.copies = state.cfg.copies || 1;
     state.timer = defaultTimer();
     renderTimer();
+    stopLoop();
+    state.mode = 'photo'; state.frames = []; state.rendered = [];
+    renderMode();
     $('qrBlock').hidden = true;
     updateCopies();
     renderFinishPickers();
@@ -3131,7 +4083,7 @@ var qrcode = function() {
     const city = (c.storeName || '').split(',')[0].trim();
     $('thanks').textContent = city ? `Thank you for visiting The Collective, ${city}.` : 'Thank you for visiting The Collective.';
     const paper = c.paper.name || `${c.paper.widthIn} × ${c.paper.heightIn} in`;
-    $('attractLede').textContent = c.shots > 1
+    state.lede = $('attractLede').textContent = c.shots > 1
       ? `Choose a timer, then touch anywhere on the screen. Three shots, one ${paper} print, framed by The Collective.`
       : `Choose a timer, then touch anywhere on the screen. When the count ends, your portrait prints on ${paper}, framed by The Collective.`;
     $('previewCaption').textContent = c.paper.name === 'A5' ? 'Your print · A5 · 148 × 210 mm' : `Your print · ${paper}`;
@@ -3140,11 +4092,11 @@ var qrcode = function() {
     const cc = cloudCfg();
     $('cloudName').value = cc?.name || ''; $('cloudPreset').value = cc?.preset || '';
     describeShare();
+    renderMode();
     $('mirrorChk').checked = !!c.mirrorPreview;
     booth.classList.toggle('mirror', !!c.mirrorPreview);
     const W = Math.round(c.paper.widthIn * c.paper.dpi), H = Math.round(c.paper.heightIn * c.paper.dpi);
     printCanvas.width = W; printCanvas.height = H;
-    printCanvas.style.height = `${Math.round(490 * H / W)}px`;
   }
 
   // ---------- camera ----------
@@ -3234,7 +4186,10 @@ var qrcode = function() {
     const run = ++state.run;
     const live = () => run === state.run;
     state.shots = [];
-    const total = state.cfg.shots || 1;
+    const boom = state.mode === 'boomerang';
+    const total = boom ? 1 : (state.cfg.shots || 1);
+    state.frames = [];
+    stopLoop();
     setStage('countdown');
     for (let i = 0; i < total; i++) {
       $('shotLabel').textContent = total > 1 ? `Shot ${i + 1} of ${total} · Eyes to the lens` : 'Eyes to the lens';
@@ -3244,6 +4199,21 @@ var qrcode = function() {
         await sleep(1000);
         if (!live()) return;
       }
+      if (boom) {
+        $('shotLabel').textContent = 'Move now';
+        const el = $('countNum'); el.textContent = 'Go'; el.classList.remove('tick'); void el.offsetWidth; el.classList.add('tick');
+        const bar = $('recBar');
+        bar.style.setProperty('--rec', `${BURST * BURST_GAP}ms`);
+        bar.classList.remove('on'); void bar.offsetWidth; bar.classList.add('on');
+        for (let f = 0; f < BURST; f++) {
+          state.frames.push(grabSquare(1080));
+          await sleep(BURST_GAP);
+          if (!live()) { bar.classList.remove('on'); return; }
+        }
+        bar.classList.remove('on');
+        state.shots.push(state.frames[Math.floor(BURST / 2)]);
+        continue;
+      }
       flash.classList.remove('on'); void flash.offsetWidth; flash.classList.add('on');
       state.shots.push(grabFrame());
       await sleep(total > 1 ? 1000 : 450);
@@ -3252,6 +4222,9 @@ var qrcode = function() {
     await compose(printCanvas, state.shots);
     paintThumbs();
     if (!live()) return;
+    if (boom) playLoop();
+    $('previewCaption').textContent = boom ? 'Your boomerang · prints as an A5 portrait'
+      : (state.cfg.paper.name === 'A5' ? 'Your print · A5 · 148 × 210 mm' : 'Your print');
     state.busy = false;
     setStage('review');
     if (state.cfg.autoPrint) { await sleep(1800); doPrint(); }
@@ -3375,6 +4348,7 @@ var qrcode = function() {
     const started = Date.now();
     const no = lastNo() + 1;
     $('qrBlock').hidden = true;
+    $('qrTitle').textContent = state.mode === 'boomerang' ? 'Scan to save your boomerang' : 'Scan to save your portrait';
     const sharing = makeShareLink(fmtNo(no)).catch((e) => {
       $('adminError').textContent = `QR code not made: ${e.message || e}`;
       return null;
@@ -3397,7 +4371,8 @@ var qrcode = function() {
       saveNo(no);
       $('doneImg').src = printCanvas.toDataURL('image/jpeg', 0.85);
       $('doneNo').textContent = `Printed · Portrait ${fmtNo(no)}`;
-      const link = await Promise.race([sharing, sleep(10000).then(() => null)]);
+      const link = await Promise.race([sharing, sleep(state.mode === 'boomerang' ? 20000 : 10000).then(() => null)]);
+      stopLoop();
       if (link) {
         drawQR(link.url);
         $('qrNote').textContent = link.note;
@@ -3417,7 +4392,7 @@ var qrcode = function() {
   // ---------- touch anywhere ----------
   booth.addEventListener('click', (e) => {
     if (booth.dataset.stage !== 'attract') return;
-    if (e.target.closest('#admin, #adminBtn, #homeBtn, .timer')) return;
+    if (e.target.closest('#admin, #adminBtn, #homeBtn, .timer, .mode')) return;
     captureSequence();
   });
 
@@ -3449,7 +4424,11 @@ var qrcode = function() {
       localStorage.setItem('booth.cloudPreset', $('cloudPreset').value.trim());
     } catch {}
     describeShare();
+    renderMode();
   };
+  document.querySelectorAll('.mode-opt').forEach((b) => b.addEventListener('click', () => {
+    state.mode = b.dataset.mode; renderMode();
+  }));
   $('cloudName').addEventListener('change', saveCloud);
   $('cloudPreset').addEventListener('change', saveCloud);
   $('fullscreenBtn').addEventListener('click', () => document.documentElement.requestFullscreen?.().catch(() => {}));

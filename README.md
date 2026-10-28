@@ -31,6 +31,35 @@ wordmark, and the brand name running around every edge of the screen and the pri
 Brand copy used on the print ("India's largest luxury multi-brand retailer", `#TheCollectiveIndia`)
 can be changed in `config.json`.
 
+## Setting up the Jalandhar store
+
+**Recommended: the full version.** It is the one that gives guests the QR code over the store Wi-Fi
+with no account, makes boomerangs downloadable, and keeps a copy of every print.
+
+What to have at the booth:
+* A Windows PC with a touchscreen monitor (a mouse works too) and a 1080p USB webcam at eye height.
+* A printer that takes **A5 photo paper**, for example any A4 photo inkjet with an A5 tray setting.
+  4 × 6 dye-sub printers cannot print A5; for those, change `paper` in `config.json`.
+* Soft, even light on the guest's face, such as a ring light behind the webcam.
+* The PC on the store Wi-Fi, ideally the same network guests join.
+
+One-time setup on the booth PC:
+1. Install **Google Chrome** and **Node.js LTS** (nodejs.org).
+2. Plug in the webcam. Set the printer as the **default printer** and its paper to **A5**
+   (Printing preferences), with borderless or minimal margins if offered.
+3. Download the booth ZIP (link below), unzip it to `C:\CollectiveBooth`.
+4. Double-click **`start-kiosk.bat`**. When Windows asks about network access for Node.js, tick
+   **Private networks** and click **Allow**. The booth opens full screen.
+5. Tap the wordmark 5 times for staff settings. Check the camera and printer, pick the default
+   timer, and press **Test print**. Then scan a QR code with your own phone on the store Wi-Fi.
+6. Double-click **`autostart-on.bat`** so the booth starts by itself every morning when the PC
+   is switched on, and the PC never sleeps.
+
+Optional: put the guest Wi-Fi name in `config.json` (`share.wifiName`). If phones on the guest
+Wi-Fi cannot open the QR link, add a Cloudinary account in staff settings (see below).
+
+Every day: switch on the PC, check paper and ink, done. To close the booth press **Alt + F4**.
+
 ## Go live in 3 minutes (no install)
 
 Only Google Chrome is needed. No Node.js, no internet once it is running.
@@ -115,6 +144,7 @@ If neither is set up, the QR code is simply not shown and printing works as befo
 | `shots` | `1` = single portrait, `3` = three-shot strip on one sheet. |
 | `countdownSeconds` | Default timer before each shot (3, 5 or 10). Guests can change it on the welcome screen; staff can change the default in staff settings. |
 | `timerChoices` | Timer buttons shown on the welcome screen. Default `[3, 5, 10]`. |
+| `boomerang` | Offer the Boomerang option (`true`/`false`). It shows only when photo downloads are set up. |
 | `share.mode` | Photo download QR: `auto` (Cloudinary if set up, else store Wi-Fi), `lan`, `cloud` or `off`. |
 | `share.wifiName` | Store Wi-Fi name shown under the QR code. |
 | `share.baseUrl` | Fixed address phones should use, e.g. `http://192.168.1.20:3000`. Empty = detected automatically. |
@@ -145,6 +175,9 @@ Environment overrides: `PORT`, `PRINTER`, `DRY_RUN=1`.
 
 * Pick a 3, 5 or 10 second timer, then touch anywhere on the welcome screen (or press Space).
   Countdown, flash, review.
+* Pick **Photo** or **Boomerang** under the camera. A boomerang records a short burst after the
+  countdown and loops it forward and back; the GIF goes to the guest's phone through the QR code and
+  an A5 portrait from the middle of the clip prints. Boomerang only appears when the QR code is set up.
 * After printing, guests scan the QR code to save their portrait on their phone.
 * Pick a finish on the review screen; the A5 preview updates instantly.
 * **Print** (Enter) sends it; **Retake** goes again; the screen resets itself after the print.
@@ -161,7 +194,8 @@ kiosk/booth.html      the whole booth in one file (no-install version, built fro
 kiosk/Start Booth.bat no-install launcher: Chrome kiosk + silent printing
 public/index.html     kiosk markup
 public/fonts/         Bodoni Moda and Manrope (SIL Open Font License)
-public/vendor/        qrcode-generator by Kazuhiko Arase (MIT)
+public/vendor/        qrcode-generator by Kazuhiko Arase (MIT), gifenc by Matt DesLauriers (MIT)
+autostart-on.bat      start the booth with Windows and stop the PC sleeping (autostart-off.bat undoes it)
 prints/share/         photos guests can download over Wi-Fi, deleted after keepDays
 public/styles.css     design tokens and layout
 public/app.js         camera, countdown, print composition, printing
